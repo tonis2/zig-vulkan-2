@@ -19,9 +19,12 @@ pub fn build(b: *Builder) void {
     const engine = Pkg{ .name = "engine", .path = FileSource{ .path = "src/context.zig" } };
 
     const exe = b.addExecutable("main", "examples/main.zig");
-
     exe.setTarget(target);
     exe.setBuildMode(mode);
+
+    exe.linkLibC();
+    exe.linkSystemLibrary("glfw");
+
     exe.addPackage(vk);
     exe.addPackage(engine);
     exe.install();

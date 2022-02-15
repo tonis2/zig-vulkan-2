@@ -5,8 +5,9 @@ const Allocator = std.mem.Allocator;
 const utils = @import("utils.zig");
 const debug = @import("debug.zig");
 const PhysicalDevice = @import("physical_device.zig");
-const QueueFamilyIndices = PhysicalDevice.QueueFamilyIndices;
 const Window = @import("window.zig");
+
+const QueueFamilyIndices = PhysicalDevice.QueueFamilyIndices;
 const ArrayList = std.ArrayList;
 
 // Constants
@@ -138,6 +139,7 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *Window)
             std.debug.panic("failed to create debug messenger", .{});
         };
     };
+
     self.logical_device = try PhysicalDevice.createLogicalDevice(allocator, self);
 
     self.vkd = try Device.load(self.logical_device, self.vki.vkGetDeviceProcAddr);
