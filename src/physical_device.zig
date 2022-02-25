@@ -9,8 +9,8 @@ const Context = @import("context.zig");
 
 const required_device_extensions = [_][*:0]const u8{
     vk.extension_info.khr_swapchain.name,
-    vk.extension_info.ext_descriptor_indexing.name,
-    vk.extension_info.khr_synchronization_2.name,
+    // vk.extension_info.ext_descriptor_indexing.name,
+    // vk.extension_info.khr_synchronization_2.name,
     vk.extension_info.khr_push_descriptor.name,
 };
 
@@ -48,8 +48,8 @@ pub const DeviceCandidate = struct {
         _ = try vki.enumeratePhysicalDevices(instance, &device_count, pdevs.ptr);
 
         for (pdevs) |pdev| {
-            if (try checkSuitable(vki, pdev, allocator, surface)) |candidate| {
-                return candidate;
+            if (try checkSuitable(vki, pdev, allocator, surface)) |device| {
+                return device;
             }
         }
 
@@ -63,14 +63,8 @@ pub const DeviceCandidate = struct {
         surface: vk.SurfaceKHR,
     ) !?DeviceCandidate {
         const props = vki.getPhysicalDeviceProperties(pdev);
-
-        if (!try checkExtensionSupport(vki, pdev, allocator)) {
-            return null;
-        }
-
-        if (!try checkSurfaceSupport(vki, pdev, surface)) {
-            return null;
-        }
+        _ = try checkExtensionSupport(vki, pdev, allocator);
+        _ = try checkSurfaceSupport(vki, pdev, surface);
 
         const feature = vki.getPhysicalDeviceFeatures(pdev);
         inline for (std.meta.fields(vk.PhysicalDeviceFeatures)) |field| {
@@ -78,16 +72,9 @@ pub const DeviceCandidate = struct {
                 if (@field(feature, field.name) == vk.FALSE) return null;
             }
         }
-
-        if (try allocateQueues(vki, pdev, allocator, surface)) |allocation| {
-            return DeviceCandidate{
-                .pdev = pdev,
-                .props = props,
-                .feature = feature,
-                .queues = allocation,
-            };
+        if (try allocateQueues(vki, pdev, allocator, surface)) |queues| {
+            return DeviceCandidate{ .pdev = pdev, .props = props, .feature = feature, .queues = queues };
         }
-
         return null;
     }
 

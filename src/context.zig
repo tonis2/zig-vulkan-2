@@ -23,10 +23,13 @@ const required_validation_features = [_]vk.ValidationFeatureEnableEXT{
     .synchronization_validation_ext,
 };
 
-const required_instance_layers = [_][*:0]const u8{
-    "VK_LAYER_KHRONOS_synchronization2",
-} ++ if (enable_safety) [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"} else [_][*:0]const u8{};
+// const required_instance_layers = [_][*:0]const u8{
+//     "VK_LAYER_KHRONOS_synchronization2",
+// } ++ if (enable_safety) [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"} else [_][*:0]const u8{};
 
+const required_instance_layers = [_][*:0]const u8{
+    "VK_LAYER_LUNARG_standard_validation",
+};
 const Self = @This();
 
 allocator: Allocator,
@@ -36,10 +39,8 @@ vkd: Device,
 instance: vk.Instance,
 physical_device: vk.PhysicalDevice,
 device: vk.Device,
-
 props: vk.PhysicalDeviceProperties,
 feature: vk.PhysicalDeviceFeatures,
-
 compute_queue: vk.Queue,
 graphics_queue: vk.Queue,
 present_queue: vk.Queue,
@@ -50,11 +51,7 @@ queue_indices: QueueFamilyIndices,
 gfx_cmd_pool: vk.CommandPool,
 comp_cmd_pool: vk.CommandPool,
 
-// TODO: utilize comptime for this (emit from struct if we are in release mode)
 messenger: ?vk.DebugUtilsMessengerEXT,
-
-/// pointer to the window handle. Caution is adviced when using this pointer ...
-// window_ptr: *glfw.Window,
 
 // Caller should make sure to call deinit
 pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Window) !Self {
@@ -137,7 +134,7 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
             .p_next = validation_features,
             .flags = .{},
             .p_application_info = &app_info,
-            .enabled_layer_count = if (enable_safety) 2 else 1,
+            .enabled_layer_count = if (enable_safety) 1,
             .pp_enabled_layer_names = &required_instance_layers,
             .enabled_extension_count = @intCast(u32, instance_exts.len),
             .pp_enabled_extension_names = @ptrCast([*]const [*:0]const u8, instance_exts),
@@ -157,7 +154,7 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
     var device_candidate = try PhysicalDevice.DeviceCandidate.init(self.vki, self.instance, allocator, self.surface);
     self.physical_device = device_candidate.pdev;
     self.device = try device_candidate.initDevice(self.vki);
-    // self.queue_indices = try QueueFamilyIndices.init(allocator, self.vki, self.physical_device, self.surface);
+    self.queue_indices = device_candidate.queues;
 
     self.messenger = blk: {
         if (!enable_safety) break :blk null;
@@ -186,24 +183,22 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
     // self.graphics_queue = self.vkd.getDeviceQueue(self.physical_device, self.queue_indices.graphics, 0);
     // self.present_queue = self.vkd.getDeviceQueue(self.physical_device, self.queue_indices.present, 0);
 
-    self.gfx_cmd_pool = blk: {
-        const pool_info = vk.CommandPoolCreateInfo{
-            .flags = .{},
-            .queue_family_index = self.queue_indices.graphics.?,
-        };
-        break :blk try self.vkd.createCommandPool(self.device, &pool_info, null);
-    };
+    // self.gfx_cmd_pool = blk: {
+    //     const pool_info = vk.CommandPoolCreateInfo{
+    //         .flags = .{},
+    //         .queue_family_index = self.queue_indices.graphics.?,
+    //     };
+    //     break :blk try self.vkd.createCommandPool(self.device, &pool_info, null);
+    // };
 
-    self.comp_cmd_pool = blk: {
-        const pool_info = vk.CommandPoolCreateInfo{
-            .flags = .{},
-            .queue_family_index = self.queue_indices.compute.?,
-        };
-        break :blk try self.vkd.createCommandPool(self.device, &pool_info, null);
-    };
+    // self.comp_cmd_pool = blk: {
+    //     const pool_info = vk.CommandPoolCreateInfo{
+    //         .flags = .{},
+    //         .queue_family_index = self.queue_indices.compute.?,
+    //     };
+    //     break :blk try self.vkd.createCommandPool(self.device, &pool_info, null);
+    // };
 
-    // possibly a bit wasteful, but to get compile errors when forgetting to
-    // init a variable the partial Self variables are moved to a new Self which we return
     return self;
 }
 
