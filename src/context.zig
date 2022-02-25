@@ -3,32 +3,42 @@ const builtin = @import("builtin");
 const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 const utils = @import("utils.zig");
-const debug = @import("debug.zig");
 const PhysicalDevice = @import("physical_device.zig");
-const Window = @import("window.zig");
+const glfw = @import("glfw");
 
 const QueueFamilyIndices = PhysicalDevice.QueueFamilyIndices;
 const ArrayList = std.ArrayList;
 
 // Constants
-pub const enable_validation_layers = builtin.mode == .Debug;
+pub const enable_safety = builtin.mode == .Debug;
 pub const engine_name = "engine";
 pub const engine_version = vk.makeApiVersion(0, 0, 1, 0);
 pub const application_version = vk.makeApiVersion(0, 0, 1, 0);
 pub const logicical_device_extensions = [_][*:0]const u8{vk.extension_info.khr_swapchain.name};
 pub const max_frames_in_flight = 2;
 
-const Context = @This();
+const required_validation_features = [_]vk.ValidationFeatureEnableEXT{
+    .gpu_assisted_ext,
+    .best_practices_ext,
+    .synchronization_validation_ext,
+};
+
+const required_instance_layers = [_][*:0]const u8{
+    "VK_LAYER_KHRONOS_synchronization2",
+} ++ if (enable_safety) [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"} else [_][*:0]const u8{};
+
+const Self = @This();
 
 allocator: Allocator,
-
 vkb: Base,
 vki: Instance,
 vkd: Device,
-
 instance: vk.Instance,
 physical_device: vk.PhysicalDevice,
-logical_device: vk.Device,
+device: vk.Device,
+
+props: vk.PhysicalDeviceProperties,
+feature: vk.PhysicalDeviceFeatures,
 
 compute_queue: vk.Queue,
 graphics_queue: vk.Queue,
@@ -47,7 +57,7 @@ messenger: ?vk.DebugUtilsMessengerEXT,
 // window_ptr: *glfw.Window,
 
 // Caller should make sure to call deinit
-pub fn init(allocator: Allocator, application_name: []const u8, window: *Window) !Context {
+pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Window) !Self {
     const app_name = try std.cstr.addNullByte(allocator, application_name);
     defer allocator.destroy(app_name.ptr);
 
@@ -63,7 +73,7 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *Window)
     // TODO: move to global scope (currently crashes the zig compiler :') )
     const common_extensions = [_][*:0]const u8{vk.extension_info.khr_surface.name};
     const application_extensions = blk: {
-        if (enable_validation_layers) {
+        if (enable_safety) {
             const debug_extensions = [_][*:0]const u8{
                 vk.extension_info.ext_debug_report.name,
                 vk.extension_info.ext_debug_utils.name,
@@ -73,50 +83,64 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *Window)
         break :blk common_extensions[0..];
     };
 
-    // const glfw_extensions_slice = try glfw.getRequiredInstanceExtensions();
-    // // Due to a zig bug we need arraylist to append instead of preallocate slice
-    // // in release it fails and lenght turnes out to be 1
-    var extensions = try ArrayList([*:0]const u8).init(allocator);
-    defer extensions.deinit();
+    const glfw_exts = try glfw.getRequiredInstanceExtensions();
 
-    // for (glfw_extensions_slice) |extension| {
-    //     try extensions.append(extension);
-    // }
-    for (application_extensions) |extension| {
-        try extensions.append(extension);
-    }
+    var instance_exts = blk: {
+        if (enable_safety) {
+            var exts = try std.ArrayList([*:0]const u8).initCapacity(
+                allocator,
+                glfw_exts.len + application_extensions.len,
+            );
+            {
+                try exts.appendSlice(glfw_exts);
+                for (application_extensions) |e| {
+                    try exts.append(e);
+                }
+            }
+            break :blk exts.toOwnedSlice();
+        }
 
-    // Partially init a context so that we can use "self" even in init
-    var self: Context = undefined;
+        break :blk glfw_exts;
+    };
+    defer if (enable_safety) {
+        allocator.free(instance_exts);
+    };
+
+    const validation_features = blk: {
+        if (enable_safety) {
+            break :blk &vk.ValidationFeaturesEXT{
+                .enabled_validation_feature_count = @truncate(u32, application_extensions.len),
+                .p_enabled_validation_features = @ptrCast(
+                    [*]const vk.ValidationFeatureEnableEXT,
+                    &application_extensions,
+                ),
+                .disabled_validation_feature_count = 0,
+                .p_disabled_validation_features = undefined,
+            };
+        }
+
+        break :blk null;
+    };
+
+    var self: Self = undefined;
     self.allocator = allocator;
 
-    // load base dispatch wrapper
-    const vk_proc = @ptrCast(vk.PfnGetInstanceProcAddr, window.getInstanceProcAddress);
+    const vk_proc = @ptrCast(vk.PfnGetInstanceProcAddr, glfw.getInstanceProcAddress);
+
     self.vkb = try Base.load(vk_proc);
-    if (!(try utils.isInstanceExtensionsPresent(allocator, self.vkb, extensions.items))) {
+    if (!(try utils.isInstanceExtensionsPresent(allocator, self.vkb, instance_exts))) {
         return error.InstanceExtensionNotPresent;
-    }
-
-    const validation_layer_info = try debug.Info.init(allocator, self.vkb);
-
-    var create_p_next: ?*anyopaque = null;
-    if (enable_validation_layers) {
-        comptime {
-            std.debug.assert(enable_validation_layers);
-        }
-        var debug_create_info = createDefaultDebugCreateInfo();
-        create_p_next = @ptrCast(?*anyopaque, &debug_create_info);
     }
 
     self.instance = blk: {
         const instanceInfo = vk.InstanceCreateInfo{
-            .p_next = create_p_next,
+            .p_next = validation_features,
             .flags = .{},
             .p_application_info = &app_info,
-            .enabled_layer_count = validation_layer_info.enabled_layer_count,
-            .pp_enabled_layer_names = validation_layer_info.enabled_layer_names,
-            .enabled_extension_count = @intCast(u32, extensions.items.len),
-            .pp_enabled_extension_names = @ptrCast([*]const [*:0]const u8, extensions.items.ptr),
+            .enabled_layer_count = if (enable_safety) 2 else 1,
+            .pp_enabled_layer_names = &required_instance_layers,
+            .enabled_extension_count = @intCast(u32, instance_exts.len),
+            .pp_enabled_extension_names = @ptrCast([*]const [*:0]const u8, instance_exts),
         };
         break :blk try self.vkb.createInstance(&instanceInfo, null);
     };
@@ -124,98 +148,96 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *Window)
     self.vki = try Instance.load(self.instance, vk_proc);
     errdefer self.vki.destroyInstance(self.instance, null);
 
-    // if ((try glfw.createWindowSurface(self.instance, window.*, null, &self.surface)) != @enumToInt(vk.Result.success)) {
-    //     return error.SurfaceInitFailed;
-    // }
+    if ((try glfw.createWindowSurface(self.instance, window.*, null, &self.surface)) != @enumToInt(vk.Result.success)) {
+        return error.SurfaceInitFailed;
+    }
+
     errdefer self.vki.destroySurfaceKHR(self.instance, self.surface, null);
 
-    self.physical_device = try PhysicalDevice.selectPrimary(allocator, self.vki, self.instance, self.surface);
-    self.queue_indices = try QueueFamilyIndices.init(allocator, self.vki, self.physical_device, self.surface);
+    var device_candidate = try PhysicalDevice.DeviceCandidate.init(self.vki, self.instance, allocator, self.surface);
+    self.physical_device = device_candidate.pdev;
+    self.device = try device_candidate.initDevice(self.vki);
+    // self.queue_indices = try QueueFamilyIndices.init(allocator, self.vki, self.physical_device, self.surface);
 
     self.messenger = blk: {
-        if (!enable_validation_layers) break :blk null;
-        const create_info = createDefaultDebugCreateInfo();
+        if (!enable_safety) break :blk null;
+        const create_info = vk.DebugUtilsMessengerCreateInfoEXT{
+            .flags = .{},
+            .message_severity = vk.DebugUtilsMessageSeverityFlagsEXT{
+                .verbose_bit_ext = true,
+                .warning_bit_ext = true,
+                .error_bit_ext = true,
+            },
+            .message_type = vk.DebugUtilsMessageTypeFlagsEXT{
+                .general_bit_ext = true,
+                .validation_bit_ext = true,
+                .performance_bit_ext = true,
+            },
+            .pfn_user_callback = debugCallback,
+            .p_user_data = null,
+        };
         break :blk self.vki.createDebugUtilsMessengerEXT(self.instance, &create_info, null) catch {
             std.debug.panic("failed to create debug messenger", .{});
         };
     };
 
-    self.logical_device = try PhysicalDevice.createLogicalDevice(allocator, self);
-
-    self.vkd = try Device.load(self.logical_device, self.vki.vkGetDeviceProcAddr);
-    self.compute_queue = self.vkd.getDeviceQueue(self.logical_device, self.queue_indices.compute, 0);
-    self.graphics_queue = self.vkd.getDeviceQueue(self.logical_device, self.queue_indices.graphics, 0);
-    self.present_queue = self.vkd.getDeviceQueue(self.logical_device, self.queue_indices.present, 0);
+    self.vkd = try Device.load(self.device, self.vki.dispatch.vkGetDeviceProcAddr);
+    // self.compute_queue = self.vkd.getDeviceQueue(self.physical_device, self.queue_indices.compute, 0);
+    // self.graphics_queue = self.vkd.getDeviceQueue(self.physical_device, self.queue_indices.graphics, 0);
+    // self.present_queue = self.vkd.getDeviceQueue(self.physical_device, self.queue_indices.present, 0);
 
     self.gfx_cmd_pool = blk: {
         const pool_info = vk.CommandPoolCreateInfo{
             .flags = .{},
-            .queue_family_index = self.queue_indices.graphics,
+            .queue_family_index = self.queue_indices.graphics.?,
         };
-        break :blk try self.vkd.createCommandPool(self.logical_device, &pool_info, null);
+        break :blk try self.vkd.createCommandPool(self.device, &pool_info, null);
     };
 
     self.comp_cmd_pool = blk: {
         const pool_info = vk.CommandPoolCreateInfo{
             .flags = .{},
-            .queue_family_index = self.queue_indices.compute,
+            .queue_family_index = self.queue_indices.compute.?,
         };
-        break :blk try self.vkd.createCommandPool(self.logical_device, &pool_info, null);
+        break :blk try self.vkd.createCommandPool(self.device, &pool_info, null);
     };
 
     // possibly a bit wasteful, but to get compile errors when forgetting to
-    // init a variable the partial context variables are moved to a new context which we return
-    return Context{
-        .allocator = self.allocator,
-        .vkb = self.vkb,
-        .vki = self.vki,
-        .vkd = self.vkd,
-        .instance = self.instance,
-        .physical_device = self.physical_device,
-        .logical_device = self.logical_device,
-        .compute_queue = self.compute_queue,
-        .graphics_queue = self.graphics_queue,
-        .present_queue = self.present_queue,
-        .surface = self.surface,
-        .queue_indices = self.queue_indices,
-        .gfx_cmd_pool = self.gfx_cmd_pool,
-        .comp_cmd_pool = self.comp_cmd_pool,
-        .messenger = self.messenger,
-        .window_ptr = window,
-    };
+    // init a variable the partial Self variables are moved to a new Self which we return
+    return self;
 }
 
 // TODO: remove create/destroy that are thin wrappers (make data public instead)
 /// caller must destroy returned module
-pub fn createShaderModule(self: Context, spir_v: []const u8) !vk.ShaderModule {
+pub fn createShaderModule(self: Self, spir_v: []const u8) !vk.ShaderModule {
     const create_info = vk.ShaderModuleCreateInfo{
         .flags = .{},
         .p_code = @ptrCast([*]const u32, @alignCast(4, spir_v.ptr)),
         .code_size = spir_v.len,
     };
-    return self.vkd.createShaderModule(self.logical_device, &create_info, null);
+    return self.vkd.createShaderModule(self.device, &create_info, null);
 }
 
-pub fn destroyShaderModule(self: Context, module: vk.ShaderModule) void {
-    self.vkd.destroyShaderModule(self.logical_device, module, null);
+pub fn destroyShaderModule(self: Self, module: vk.ShaderModule) void {
+    self.vkd.destroyShaderModule(self.device, module, null);
 }
 
 /// caller must destroy returned module 
-pub fn createPipelineLayout(self: Context, create_info: vk.PipelineLayoutCreateInfo) !vk.PipelineLayout {
-    return self.vkd.createPipelineLayout(self.logical_device, &create_info, null);
+pub fn createPipelineLayout(self: Self, create_info: vk.PipelineLayoutCreateInfo) !vk.PipelineLayout {
+    return self.vkd.createPipelineLayout(self.device, &create_info, null);
 }
 
-pub fn destroyPipelineLayout(self: Context, pipeline_layout: vk.PipelineLayout) void {
-    self.vkd.destroyPipelineLayout(self.logical_device, pipeline_layout, null);
+pub fn destroyPipelineLayout(self: Self, pipeline_layout: vk.PipelineLayout) void {
+    self.vkd.destroyPipelineLayout(self.device, pipeline_layout, null);
 }
 
 /// caller must destroy pipeline from vulkan
-pub inline fn createGraphicsPipeline(self: Context, create_info: vk.GraphicsPipelineCreateInfo) !vk.Pipeline {
+pub inline fn createGraphicsPipeline(self: Self, create_info: vk.GraphicsPipelineCreateInfo) !vk.Pipeline {
     const create_infos = [_]vk.GraphicsPipelineCreateInfo{
         create_info,
     };
     var pipeline: vk.Pipeline = undefined;
-    const result = try self.vkd.createGraphicsPipelines(self.logical_device, .null_handle, create_infos.len, @ptrCast([*]const vk.GraphicsPipelineCreateInfo, &create_infos), null, @ptrCast([*]vk.Pipeline, &pipeline));
+    const result = try self.vkd.createGraphicsPipelines(self.device, .null_handle, create_infos.len, @ptrCast([*]const vk.GraphicsPipelineCreateInfo, &create_infos), null, @ptrCast([*]vk.Pipeline, &pipeline));
     if (result != vk.Result.success) {
         // TODO: not panic?
         std.debug.panic("failed to initialize pipeline!", .{});
@@ -224,14 +246,14 @@ pub inline fn createGraphicsPipeline(self: Context, create_info: vk.GraphicsPipe
 }
 
 /// caller must both destroy pipeline from the heap and in vulkan
-pub fn createComputePipeline(self: Context, allocator: Allocator, create_info: vk.ComputePipelineCreateInfo) !*vk.Pipeline {
+pub fn createComputePipeline(self: Self, allocator: Allocator, create_info: vk.ComputePipelineCreateInfo) !*vk.Pipeline {
     var pipeline = try allocator.create(vk.Pipeline);
     errdefer allocator.destroy(pipeline);
 
     const create_infos = [_]vk.ComputePipelineCreateInfo{
         create_info,
     };
-    const result = try self.vkd.createComputePipelines(self.logical_device, .null_handle, create_infos.len, @ptrCast([*]const vk.ComputePipelineCreateInfo, &create_infos), null, @ptrCast([*]vk.Pipeline, pipeline));
+    const result = try self.vkd.createComputePipelines(self.device, .null_handle, create_infos.len, @ptrCast([*]const vk.ComputePipelineCreateInfo, &create_infos), null, @ptrCast([*]vk.Pipeline, pipeline));
     if (result != vk.Result.success) {
         // TODO: not panic?
         std.debug.panic("failed to initialize pipeline!", .{});
@@ -241,12 +263,12 @@ pub fn createComputePipeline(self: Context, allocator: Allocator, create_info: v
 }
 
 /// destroy pipeline from vulkan *not* from the application memory
-pub fn destroyPipeline(self: Context, pipeline: *vk.Pipeline) void {
-    self.vkd.destroyPipeline(self.logical_device, pipeline.*, null);
+pub fn destroyPipeline(self: Self, pipeline: *vk.Pipeline) void {
+    self.vkd.destroyPipeline(self.device, pipeline.*, null);
 }
 
 /// caller must destroy returned render pass
-pub fn createRenderPass(self: Context, format: vk.Format) !vk.RenderPass {
+pub fn createRenderPass(self: Self, format: vk.Format) !vk.RenderPass {
     const color_attachment = [_]vk.AttachmentDescription{
         .{
             .flags = .{},
@@ -306,154 +328,190 @@ pub fn createRenderPass(self: Context, format: vk.Format) !vk.RenderPass {
         .dependency_count = 1,
         .p_dependencies = @ptrCast([*]const vk.SubpassDependency, &subpass_dependency),
     };
-    return try self.vkd.createRenderPass(self.logical_device, &render_pass_info, null);
+    return try self.vkd.createRenderPass(self.device, &render_pass_info, null);
 }
 
-pub fn destroyRenderPass(self: Context, render_pass: vk.RenderPass) void {
-    self.vkd.destroyRenderPass(self.logical_device, render_pass, null);
+pub fn destroyRenderPass(self: Self, render_pass: vk.RenderPass) void {
+    self.vkd.destroyRenderPass(self.device, render_pass, null);
 }
 
-pub fn deinit(self: Context) void {
-    self.vkd.destroyCommandPool(self.logical_device, self.gfx_cmd_pool, null);
-    self.vkd.destroyCommandPool(self.logical_device, self.comp_cmd_pool, null);
-
+pub fn deinit(self: Self) void {
+    self.vkd.destroyCommandPool(self.device, self.gfx_cmd_pool, null);
+    self.vkd.destroyCommandPool(self.device, self.comp_cmd_pool, null);
     self.vki.destroySurfaceKHR(self.instance, self.surface, null);
-    self.vkd.destroyDevice(self.logical_device, null);
+    self.vkd.destroyDevice(self.device, null);
 
-    if (enable_validation_layers) {
+    if (enable_safety) {
         self.vki.destroyDebugUtilsMessengerEXT(self.instance, self.messenger.?, null);
     }
     self.vki.destroyInstance(self.instance, null);
 }
 
-// TODO: can probably drop function and inline it in init
-fn createDefaultDebugCreateInfo() vk.DebugUtilsMessengerCreateInfoEXT {
-    const message_severity = vk.DebugUtilsMessageSeverityFlagsEXT{
-        .verbose_bit_ext = true,
-        .warning_bit_ext = true,
-        .error_bit_ext = true,
-    };
-
-    const message_type = vk.DebugUtilsMessageTypeFlagsEXT{
-        .general_bit_ext = true,
-        .validation_bit_ext = true,
-        .performance_bit_ext = true,
-    };
-
-    return vk.DebugUtilsMessengerCreateInfoEXT{
-        .flags = .{},
-        .message_severity = message_severity,
-        .message_type = message_type,
-        .pfn_user_callback = debug.messageCallback,
-        .p_user_data = null,
-    };
-}
-
-pub const Base = vk.BaseWrapper(&[_]vk.BaseCommand{
-    .createInstance,
-    .enumerateInstanceExtensionProperties,
-    .enumerateInstanceLayerProperties,
+pub const Base = vk.BaseWrapper(.{
+    .createInstance = true,
+    .enumerateInstanceExtensionProperties = true,
+    .enumerateInstanceLayerProperties = true,
 });
 
-pub const Instance = blk: {
-    // zig fmt: off
-    var default_commands = [_]vk.InstanceCommand{ 
-        .createDevice, 
-        .destroyInstance, 
-        .destroySurfaceKHR,
-        .enumerateDeviceExtensionProperties,
-        .enumeratePhysicalDevices, 
-        .getDeviceProcAddr, 
-        .getPhysicalDeviceFeatures, 
-        .getPhysicalDeviceMemoryProperties, 
-        .getPhysicalDeviceProperties, 
-        .getPhysicalDeviceQueueFamilyProperties, 
-        .getPhysicalDeviceSurfaceCapabilitiesKHR, 
-        .getPhysicalDeviceSurfaceFormatsKHR, 
-        .getPhysicalDeviceSurfacePresentModesKHR, 
-        .getPhysicalDeviceSurfaceSupportKHR 
-    };
-    // zig fmt: on
-    var output_commands = default_commands ++ if (enable_validation_layers) [_]vk.InstanceCommand{
-        .createDebugUtilsMessengerEXT,
-        .destroyDebugUtilsMessengerEXT,
-    } else [_]vk.InstanceCommand{};
-    break :blk vk.InstanceWrapper(&output_commands);
-};
+pub const Instance = vk.InstanceWrapper(.{
+    .getPhysicalDeviceProperties = true,
+    .getPhysicalDeviceMemoryProperties = true,
 
-// zig fmt: off
-pub const Device = vk.DeviceWrapper(&[_]vk.DeviceCommand{ 
-    .acquireNextImageKHR, 
-    .allocateCommandBuffers, 
-    .allocateDescriptorSets, 
-    .allocateMemory, 
-    .beginCommandBuffer, 
-    .bindBufferMemory, 
-    .bindImageMemory, 
-    .cmdBlitImage,
-    .cmdBeginRenderPass, 
-    .cmdBindDescriptorSets, 
-    .cmdBindIndexBuffer,
-    .cmdBindPipeline,
-    .cmdBindVertexBuffers,
-    .cmdCopyBuffer,
-    .cmdCopyBufferToImage,
-    .cmdCopyImageToBuffer,
-    .cmdDispatch,
-    .cmdDrawIndexed,
-    .cmdEndRenderPass,
-    .cmdPipelineBarrier,
-    .cmdSetScissor,
-    .cmdSetViewport,
-    .createBuffer,
-    .createCommandPool,
-    .createComputePipelines,
-    .createDescriptorPool,
-    .createDescriptorSetLayout,
-    .createFence,
-    .createFramebuffer,
-    .createGraphicsPipelines,
-    .createImage,
-    .createImageView,
-    .createPipelineLayout,
-    .createRenderPass,
-    .createSampler,
-    .createSemaphore,
-    .createShaderModule,
-    .createSwapchainKHR,
-    .destroyBuffer,
-    .destroyCommandPool,
-    .destroyDescriptorPool,
-    .destroyDescriptorSetLayout,
-    .destroyDevice,
-    .destroyFence,
-    .destroyFramebuffer,
-    .destroyImage,
-    .destroyImageView,
-    .destroyPipeline,
-    .destroyPipelineLayout,
-    .destroyRenderPass,
-    .destroySampler,
-    .destroySemaphore,
-    .destroyShaderModule,
-    .destroySwapchainKHR,
-    .deviceWaitIdle,
-    .endCommandBuffer,
-    .freeCommandBuffers,
-    .freeMemory,
-    .getBufferMemoryRequirements,
-    .getDeviceQueue,
-    .getImageMemoryRequirements,
-    .getSwapchainImagesKHR,
-    .mapMemory,
-    .queuePresentKHR,
-    .queueSubmit,
-    .queueWaitIdle,
-    .resetFences,
-    .unmapMemory,
-    .updateDescriptorSets,
-    .waitForFences 
+    //debug
+    .createDebugUtilsMessengerEXT = enable_safety,
+    .destroyDebugUtilsMessengerEXT = enable_safety,
+
+    //normal
+    .destroyInstance = true,
+    .createDevice = true,
+    .destroySurfaceKHR = true,
+    .enumeratePhysicalDevices = true,
+    .enumerateDeviceExtensionProperties = true,
+    .getPhysicalDeviceSurfaceFormatsKHR = true,
+    .getPhysicalDeviceSurfacePresentModesKHR = true,
+    .getPhysicalDeviceSurfaceCapabilitiesKHR = true,
+    .getPhysicalDeviceQueueFamilyProperties = true,
+    .getPhysicalDeviceSurfaceSupportKHR = true,
+    .getDeviceProcAddr = true,
+    .getPhysicalDeviceFeatures = true,
+    .getPhysicalDeviceFeatures2 = true,
+    .getPhysicalDeviceFormatProperties = true,
 });
+
+pub const Device = vk.DeviceWrapper(.{
+    .createImage = true,
+    .createBuffer = true,
+    .destroyImage = true,
+    .destroyBuffer = true,
+    .cmdCopyBuffer = true,
+    .bindImageMemory = true,
+    .bindBufferMemory = true,
+    .getImageMemoryRequirements2 = true,
+    .getBufferMemoryRequirements2 = true,
+    .mapMemory = true,
+    .freeMemory = true,
+    .unmapMemory = true,
+    .allocateMemory = true,
+    .flushMappedMemoryRanges = true,
+
+    //debug
+    .cmdBeginDebugUtilsLabelEXT = enable_safety,
+    .cmdEndDebugUtilsLabelEXT = enable_safety,
+    .cmdInsertDebugUtilsLabelEXT = enable_safety,
+    .setDebugUtilsObjectNameEXT = enable_safety,
+
+    //normal
+    .destroyDevice = true,
+    .getDeviceQueue = true,
+    .createSemaphore = true,
+    .createFence = true,
+    .createImageView = true,
+    .destroyImageView = true,
+    .destroySemaphore = true,
+    .destroyFence = true,
+    .getSwapchainImagesKHR = true,
+    .createSwapchainKHR = true,
+    .destroySwapchainKHR = true,
+    .acquireNextImageKHR = true,
+    .deviceWaitIdle = true,
+    .waitForFences = true,
+    .resetFences = true,
+    .queuePresentKHR = true,
+    .createCommandPool = true,
+    .destroyCommandPool = true,
+    .allocateCommandBuffers = true,
+    .freeCommandBuffers = true,
+    .queueWaitIdle = true,
+    .createShaderModule = true,
+    .destroyShaderModule = true,
+    .createPipelineLayout = true,
+    .destroyPipelineLayout = true,
+    .createRenderPass = true,
+    .destroyRenderPass = true,
+    .createGraphicsPipelines = true,
+    .destroyPipeline = true,
+    .createFramebuffer = true,
+    .destroyFramebuffer = true,
+    .createDescriptorSetLayout = true,
+    .destroyDescriptorSetLayout = true,
+    .createSampler = true,
+    .destroySampler = true,
+    .createDescriptorPool = true,
+    .destroyDescriptorPool = true,
+    .allocateDescriptorSets = true,
+    .updateDescriptorSets = true,
+    .beginCommandBuffer = true,
+    .resetCommandPool = true,
+    .endCommandBuffer = true,
+    .cmdDraw = true,
+    .cmdBlitImage = true,
+    .cmdSetScissor = true,
+    .cmdSetViewport = true,
+    .cmdDrawIndexed = true,
+    .cmdBindPipeline = true,
+    .cmdPushConstants = true,
+    .cmdEndRenderPass = true,
+    .cmdBeginRenderPass = true,
+    .queueSubmit2 = true,
+    // .queueSubmit = true,
+    // .cmdSetEvent2 = true,
+    // .cmdResetEvent2 = true,
+    // .cmdWaitEvents2 = true,
+    .cmdBindIndexBuffer = true,
+    .cmdCopyBufferToImage = true,
+    .cmdBindVertexBuffers = true,
+    .cmdBindDescriptorSets = true,
+    .cmdPipelineBarrier2 = true,
+    .cmdPushDescriptorSetKHR = true,
+});
+
 // zig fmt: on
 
 pub const BeginCommandBufferError = Device.BeginCommandBufferError;
+
+fn debugCallback(
+    message_severity: vk.DebugUtilsMessageSeverityFlagsEXT.IntType,
+    message_types: vk.DebugUtilsMessageTypeFlagsEXT.IntType,
+    p_callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT,
+    p_user_data: ?*anyopaque,
+) callconv(vk.vulkan_call_conv) vk.Bool32 {
+    _ = message_types;
+    _ = p_user_data;
+
+    if (p_callback_data) |data| {
+        const level = (vk.DebugUtilsMessageSeverityFlagsEXT{
+            .warning_bit_ext = true,
+        }).toInt();
+        if (message_severity >= level) {
+            std.log.info("{s}", .{data.p_message});
+
+            if (data.object_count > 0) {
+                std.log.info("----------Objects {}-----------\n", .{data.object_count});
+                var i: u32 = 0;
+                while (i < data.object_count) : (i += 1) {
+                    const o: vk.DebugUtilsObjectNameInfoEXT = data.p_objects[i];
+                    std.log.info("[{}-{s}]: {s}", .{
+                        i,
+                        @tagName(o.object_type),
+                        o.p_object_name,
+                    });
+                }
+                std.log.info("----------End Object-----------\n", .{});
+            }
+            if (data.cmd_buf_label_count > 0) {
+                std.log.info("----------Labels {}------------\n", .{data.object_count});
+                var i: u32 = 0;
+                while (i < data.cmd_buf_label_count) : (i += 1) {
+                    const o: vk.DebugUtilsLabelEXT = data.p_cmd_buf_labels[i];
+                    std.log.info("[{}]: {s}", .{
+                        i,
+                        o.p_label_name,
+                    });
+                }
+                std.log.info("----------End Label------------\n", .{});
+            }
+        }
+    }
+
+    return vk.FALSE;
+}
