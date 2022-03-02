@@ -1527,7 +1527,7 @@ pub const API_VERSION_1_0 = makeApiVersion(0, 1, 0, 0);
 pub const API_VERSION_1_1 = makeApiVersion(0, 1, 1, 0);
 pub const API_VERSION_1_2 = makeApiVersion(0, 1, 2, 0);
 pub const API_VERSION_1_3 = makeApiVersion(0, 1, 3, 0);
-pub const HEADER_VERSION = 205;
+pub const HEADER_VERSION = 206;
 pub const HEADER_VERSION_COMPLETE = makeApiVersion(0, 1, 3, HEADER_VERSION);
 pub const Display = if (@hasDecl(root, "Display")) root.Display else opaque {};
 pub const VisualID = if (@hasDecl(root, "VisualID")) root.VisualID else c_uint;
@@ -1628,6 +1628,10 @@ pub const DescriptorPoolResetFlags = packed struct {
 pub const GeometryFlagsNV = GeometryFlagsKHR;
 pub const GeometryInstanceFlagsNV = GeometryInstanceFlagsKHR;
 pub const BuildAccelerationStructureFlagsNV = BuildAccelerationStructureFlagsKHR;
+pub const PrivateDataSlotCreateFlags = packed struct {
+    _reserved_bits: Flags = 0,
+    pub usingnamespace FlagsMixin(PrivateDataSlotCreateFlags, Flags);
+};
 pub const PrivateDataSlotCreateFlagsEXT = PrivateDataSlotCreateFlags;
 pub const DescriptorUpdateTemplateCreateFlags = packed struct {
     _reserved_bits: Flags = 0,
@@ -1798,10 +1802,6 @@ pub const VideoDecodeH264CreateFlagsEXT = packed struct {
 pub const VideoDecodeH265CreateFlagsEXT = packed struct {
     _reserved_bits: Flags = 0,
     pub usingnamespace FlagsMixin(VideoDecodeH265CreateFlagsEXT, Flags);
-};
-pub const VideoEncodeH265CapabilityFlagsEXT = packed struct {
-    _reserved_bits: Flags = 0,
-    pub usingnamespace FlagsMixin(VideoEncodeH265CapabilityFlagsEXT, Flags);
 };
 pub const VideoEncodeH265CreateFlagsEXT = packed struct {
     _reserved_bits: Flags = 0,
@@ -7153,19 +7153,29 @@ pub const VideoEncodeRateControlLayerInfoKHR = extern struct {
     virtual_buffer_size_in_ms: u32,
     initial_virtual_buffer_size_in_ms: u32,
 };
+pub const VideoEncodeCapabilitiesKHR = extern struct {
+    s_type: StructureType = .video_encode_capabilities_khr,
+    p_next: ?*const anyopaque = null,
+    flags: VideoEncodeCapabilityFlagsKHR,
+    rate_control_modes: VideoEncodeRateControlModeFlagsKHR,
+    rate_control_layer_count: u8,
+    quality_level_count: u8,
+    input_image_data_fill_alignment: Extent2D,
+};
 pub const VideoEncodeH264CapabilitiesEXT = extern struct {
     s_type: StructureType = .video_encode_h264_capabilities_ext,
     p_next: ?*const anyopaque = null,
     flags: VideoEncodeH264CapabilityFlagsEXT,
     input_mode_flags: VideoEncodeH264InputModeFlagsEXT,
     output_mode_flags: VideoEncodeH264OutputModeFlagsEXT,
-    min_picture_size_in_mbs: Extent2D,
-    max_picture_size_in_mbs: Extent2D,
-    input_image_data_alignment: Extent2D,
-    max_num_l0_reference_for_p: u8,
-    max_num_l0_reference_for_b: u8,
-    max_num_l1_reference: u8,
-    quality_level_count: u8,
+    max_p_picture_l0_reference_count: u8,
+    max_b_picture_l0_reference_count: u8,
+    max_l1_reference_count: u8,
+    motion_vectors_over_pic_boundaries_flag: Bool32,
+    max_bytes_per_pic_denom: u32,
+    max_bits_per_mb_denom: u32,
+    log_2_max_mv_length_horizontal: u32,
+    log_2_max_mv_length_vertical: u32,
     std_extension_version: ExtensionProperties,
 };
 pub const VideoEncodeH264SessionCreateInfoEXT = extern struct {
@@ -7177,9 +7187,11 @@ pub const VideoEncodeH264SessionCreateInfoEXT = extern struct {
 };
 pub const StdVideoEncodeH264SliceHeader = if (@hasDecl(root, "StdVideoEncodeH264SliceHeader")) root.StdVideoEncodeH264SliceHeader else @compileError("Missing type definition of 'StdVideoEncodeH264SliceHeader'");
 pub const StdVideoEncodeH264PictureInfo = if (@hasDecl(root, "StdVideoEncodeH264PictureInfo")) root.StdVideoEncodeH264PictureInfo else @compileError("Missing type definition of 'StdVideoEncodeH264PictureInfo'");
+pub const StdVideoEncodeH264ReferenceInfo = if (@hasDecl(root, "StdVideoEncodeH264ReferenceInfo")) root.StdVideoEncodeH264ReferenceInfo else @compileError("Missing type definition of 'StdVideoEncodeH264ReferenceInfo'");
 pub const StdVideoEncodeH264SliceHeaderFlags = if (@hasDecl(root, "StdVideoEncodeH264SliceHeaderFlags")) root.StdVideoEncodeH264SliceHeaderFlags else @compileError("Missing type definition of 'StdVideoEncodeH264SliceHeaderFlags'");
 pub const StdVideoEncodeH264RefMemMgmtCtrlOperations = if (@hasDecl(root, "StdVideoEncodeH264RefMemMgmtCtrlOperations")) root.StdVideoEncodeH264RefMemMgmtCtrlOperations else @compileError("Missing type definition of 'StdVideoEncodeH264RefMemMgmtCtrlOperations'");
 pub const StdVideoEncodeH264PictureInfoFlags = if (@hasDecl(root, "StdVideoEncodeH264PictureInfoFlags")) root.StdVideoEncodeH264PictureInfoFlags else @compileError("Missing type definition of 'StdVideoEncodeH264PictureInfoFlags'");
+pub const StdVideoEncodeH264ReferenceInfoFlags = if (@hasDecl(root, "StdVideoEncodeH264ReferenceInfoFlags")) root.StdVideoEncodeH264ReferenceInfoFlags else @compileError("Missing type definition of 'StdVideoEncodeH264ReferenceInfoFlags'");
 pub const StdVideoEncodeH264RefMgmtFlags = if (@hasDecl(root, "StdVideoEncodeH264RefMgmtFlags")) root.StdVideoEncodeH264RefMgmtFlags else @compileError("Missing type definition of 'StdVideoEncodeH264RefMgmtFlags'");
 pub const StdVideoEncodeH264RefListModEntry = if (@hasDecl(root, "StdVideoEncodeH264RefListModEntry")) root.StdVideoEncodeH264RefListModEntry else @compileError("Missing type definition of 'StdVideoEncodeH264RefListModEntry'");
 pub const StdVideoEncodeH264RefPicMarkingEntry = if (@hasDecl(root, "StdVideoEncodeH264RefPicMarkingEntry")) root.StdVideoEncodeH264RefPicMarkingEntry else @compileError("Missing type definition of 'StdVideoEncodeH264RefPicMarkingEntry'");
@@ -7202,18 +7214,24 @@ pub const VideoEncodeH264DpbSlotInfoEXT = extern struct {
     s_type: StructureType = .video_encode_h264_dpb_slot_info_ext,
     p_next: ?*const anyopaque = null,
     slot_index: i8,
-    p_std_picture_info: *const StdVideoEncodeH264PictureInfo,
+    p_std_reference_info: *const StdVideoEncodeH264ReferenceInfo,
 };
 pub const VideoEncodeH264VclFrameInfoEXT = extern struct {
     s_type: StructureType = .video_encode_h264_vcl_frame_info_ext,
     p_next: ?*const anyopaque = null,
-    ref_default_final_list_0_entry_count: u8,
-    p_ref_default_final_list_0_entries: [*]const VideoEncodeH264DpbSlotInfoEXT,
-    ref_default_final_list_1_entry_count: u8,
-    p_ref_default_final_list_1_entries: [*]const VideoEncodeH264DpbSlotInfoEXT,
+    p_reference_final_lists: ?*const VideoEncodeH264ReferenceListsEXT,
     nalu_slice_entry_count: u32,
     p_nalu_slice_entries: [*]const VideoEncodeH264NaluSliceEXT,
-    p_current_picture_info: *const VideoEncodeH264DpbSlotInfoEXT,
+    p_current_picture_info: *const StdVideoEncodeH264PictureInfo,
+};
+pub const VideoEncodeH264ReferenceListsEXT = extern struct {
+    s_type: StructureType = .video_encode_h264_reference_lists_ext,
+    p_next: ?*const anyopaque = null,
+    reference_list_0_entry_count: u8,
+    p_reference_list_0_entries: [*]const VideoEncodeH264DpbSlotInfoEXT,
+    reference_list_1_entry_count: u8,
+    p_reference_list_1_entries: [*]const VideoEncodeH264DpbSlotInfoEXT,
+    p_mem_mgmt_ctrl_operations: *const StdVideoEncodeH264RefMemMgmtCtrlOperations,
 };
 pub const VideoEncodeH264EmitPictureParametersEXT = extern struct {
     s_type: StructureType = .video_encode_h264_emit_picture_parameters_ext,
@@ -7231,12 +7249,9 @@ pub const VideoEncodeH264ProfileEXT = extern struct {
 pub const VideoEncodeH264NaluSliceEXT = extern struct {
     s_type: StructureType = .video_encode_h264_nalu_slice_ext,
     p_next: ?*const anyopaque = null,
-    p_slice_header_std: *const StdVideoEncodeH264SliceHeader,
     mb_count: u32,
-    ref_final_list_0_entry_count: u8,
-    p_ref_final_list_0_entries: [*]const VideoEncodeH264DpbSlotInfoEXT,
-    ref_final_list_1_entry_count: u8,
-    p_ref_final_list_1_entries: [*]const VideoEncodeH264DpbSlotInfoEXT,
+    p_reference_final_lists: ?*const VideoEncodeH264ReferenceListsEXT,
+    p_slice_header_std: *const StdVideoEncodeH264SliceHeader,
 };
 pub const VideoEncodeH264RateControlInfoEXT = extern struct {
     s_type: StructureType = .video_encode_h264_rate_control_info_ext,
@@ -7277,12 +7292,22 @@ pub const VideoEncodeH265CapabilitiesEXT = extern struct {
     input_mode_flags: VideoEncodeH265InputModeFlagsEXT,
     output_mode_flags: VideoEncodeH265OutputModeFlagsEXT,
     ctb_sizes: VideoEncodeH265CtbSizeFlagsEXT,
-    input_image_data_alignment: Extent2D,
-    max_num_l0_reference_for_p: u8,
-    max_num_l0_reference_for_b: u8,
-    max_num_l1_reference: u8,
-    max_num_sub_layers: u8,
-    quality_level_count: u8,
+    transform_block_sizes: VideoEncodeH265TransformBlockSizeFlagsEXT,
+    max_p_picture_l0_reference_count: u8,
+    max_b_picture_l0_reference_count: u8,
+    max_l1_reference_count: u8,
+    max_sub_layers_count: u8,
+    min_log_2_min_luma_coding_block_size_minus_3: u8,
+    max_log_2_min_luma_coding_block_size_minus_3: u8,
+    min_log_2_min_luma_transform_block_size_minus_2: u8,
+    max_log_2_min_luma_transform_block_size_minus_2: u8,
+    min_max_transform_hierarchy_depth_inter: u8,
+    max_max_transform_hierarchy_depth_inter: u8,
+    min_max_transform_hierarchy_depth_intra: u8,
+    max_max_transform_hierarchy_depth_intra: u8,
+    max_diff_cu_qp_delta_depth: u8,
+    min_max_num_merge_cand: u8,
+    max_max_num_merge_cand: u8,
     std_extension_version: ExtensionProperties,
 };
 pub const VideoEncodeH265SessionCreateInfoEXT = extern struct {
@@ -8760,6 +8785,7 @@ pub const StructureType = enum(i32) {
     video_encode_h264_profile_ext = 1000038008,
     video_encode_h264_rate_control_info_ext = 1000038009,
     video_encode_h264_rate_control_layer_info_ext = 1000038010,
+    video_encode_h264_reference_lists_ext = 1000038011,
     video_encode_h265_capabilities_ext = 1000039000,
     video_encode_h265_session_create_info_ext = 1000039001,
     video_encode_h265_session_parameters_create_info_ext = 1000039002,
@@ -9046,6 +9072,7 @@ pub const StructureType = enum(i32) {
     video_encode_info_khr = 1000299000,
     video_encode_rate_control_info_khr = 1000299001,
     video_encode_rate_control_layer_info_khr = 1000299002,
+    video_encode_capabilities_khr = 1000299003,
     physical_device_diagnostics_config_features_nv = 1000300000,
     device_diagnostics_config_create_info_nv = 1000300001,
     queue_family_checkpoint_properties_2_nv = 1000314008,
@@ -11189,10 +11216,6 @@ pub const IndirectCommandsTokenTypeNV = enum(i32) {
     draw_tasks_nv = 7,
     _,
 };
-pub const PrivateDataSlotCreateFlags = packed struct {
-    _reserved_bits: Flags = 0,
-    pub usingnamespace FlagsMixin(PrivateDataSlotCreateFlags, Flags);
-};
 pub const DescriptorSetLayoutCreateFlags = packed struct {
     push_descriptor_bit_khr: bool align(@alignOf(Flags)) = false,
     update_after_bind_pool_bit: bool = false,
@@ -13257,6 +13280,41 @@ pub const VideoEncodeFlagsKHR = packed struct {
     _reserved_bit_31: bool = false,
     pub usingnamespace FlagsMixin(VideoEncodeFlagsKHR, Flags);
 };
+pub const VideoEncodeCapabilityFlagsKHR = packed struct {
+    preceding_externally_encoded_bytes_bit_khr: bool align(@alignOf(Flags)) = false,
+    _reserved_bit_1: bool = false,
+    _reserved_bit_2: bool = false,
+    _reserved_bit_3: bool = false,
+    _reserved_bit_4: bool = false,
+    _reserved_bit_5: bool = false,
+    _reserved_bit_6: bool = false,
+    _reserved_bit_7: bool = false,
+    _reserved_bit_8: bool = false,
+    _reserved_bit_9: bool = false,
+    _reserved_bit_10: bool = false,
+    _reserved_bit_11: bool = false,
+    _reserved_bit_12: bool = false,
+    _reserved_bit_13: bool = false,
+    _reserved_bit_14: bool = false,
+    _reserved_bit_15: bool = false,
+    _reserved_bit_16: bool = false,
+    _reserved_bit_17: bool = false,
+    _reserved_bit_18: bool = false,
+    _reserved_bit_19: bool = false,
+    _reserved_bit_20: bool = false,
+    _reserved_bit_21: bool = false,
+    _reserved_bit_22: bool = false,
+    _reserved_bit_23: bool = false,
+    _reserved_bit_24: bool = false,
+    _reserved_bit_25: bool = false,
+    _reserved_bit_26: bool = false,
+    _reserved_bit_27: bool = false,
+    _reserved_bit_28: bool = false,
+    _reserved_bit_29: bool = false,
+    _reserved_bit_30: bool = false,
+    _reserved_bit_31: bool = false,
+    pub usingnamespace FlagsMixin(VideoEncodeCapabilityFlagsKHR, Flags);
+};
 pub const VideoEncodeRateControlFlagsKHR = packed struct {
     reserved_0_bit_khr: bool align(@alignOf(Flags)) = false,
     _reserved_bit_1: bool = false,
@@ -13328,29 +13386,29 @@ pub const VideoEncodeRateControlModeFlagsKHR = packed struct {
     pub usingnamespace FlagsMixin(VideoEncodeRateControlModeFlagsKHR, Flags);
 };
 pub const VideoEncodeH264CapabilityFlagsEXT = packed struct {
-    cabac_bit_ext: bool align(@alignOf(Flags)) = false,
-    cavlc_bit_ext: bool = false,
-    weighted_bi_pred_implicit_bit_ext: bool = false,
-    transform_8x8_bit_ext: bool = false,
+    direct_8x8_inference_bit_ext: bool align(@alignOf(Flags)) = false,
+    separate_colour_plane_bit_ext: bool = false,
+    qpprime_y_zero_transform_bypass_bit_ext: bool = false,
+    scaling_lists_bit_ext: bool = false,
+    hrd_compliance_bit_ext: bool = false,
     chroma_qp_offset_bit_ext: bool = false,
     second_chroma_qp_offset_bit_ext: bool = false,
+    pic_init_qp_minus26_bit_ext: bool = false,
+    weighted_pred_bit_ext: bool = false,
+    weighted_bipred_explicit_bit_ext: bool = false,
+    weighted_bipred_implicit_bit_ext: bool = false,
+    weighted_pred_no_table_bit_ext: bool = false,
+    transform_8x8_bit_ext: bool = false,
+    cabac_bit_ext: bool = false,
+    cavlc_bit_ext: bool = false,
     deblocking_filter_disabled_bit_ext: bool = false,
     deblocking_filter_enabled_bit_ext: bool = false,
     deblocking_filter_partial_bit_ext: bool = false,
+    disable_direct_spatial_mv_pred_bit_ext: bool = false,
     multiple_slice_per_frame_bit_ext: bool = false,
-    evenly_distributed_slice_size_bit_ext: bool = false,
-    _reserved_bit_11: bool = false,
-    _reserved_bit_12: bool = false,
-    _reserved_bit_13: bool = false,
-    _reserved_bit_14: bool = false,
-    _reserved_bit_15: bool = false,
-    _reserved_bit_16: bool = false,
-    _reserved_bit_17: bool = false,
-    _reserved_bit_18: bool = false,
-    _reserved_bit_19: bool = false,
-    _reserved_bit_20: bool = false,
-    _reserved_bit_21: bool = false,
-    _reserved_bit_22: bool = false,
+    slice_mb_count_bit_ext: bool = false,
+    row_unaligned_slice_bit_ext: bool = false,
+    different_slice_type_bit_ext: bool = false,
     _reserved_bit_23: bool = false,
     _reserved_bit_24: bool = false,
     _reserved_bit_25: bool = false,
@@ -13639,6 +13697,41 @@ pub const RenderingFlags = packed struct {
     _reserved_bit_31: bool = false,
     pub usingnamespace FlagsMixin(RenderingFlags, Flags);
 };
+pub const VideoEncodeH265CapabilityFlagsEXT = packed struct {
+    separate_colour_plane_bit_ext: bool align(@alignOf(Flags)) = false,
+    scaling_lists_bit_ext: bool = false,
+    sample_adaptive_offset_enabled_bit_ext: bool = false,
+    pcm_enable_bit_ext: bool = false,
+    sps_temporal_mvp_enabled_bit_ext: bool = false,
+    hrd_compliance_bit_ext: bool = false,
+    init_qp_minus26_bit_ext: bool = false,
+    log2_parallel_merge_level_minus2_bit_ext: bool = false,
+    sign_data_hiding_enabled_bit_ext: bool = false,
+    transform_skip_enabled_bit_ext: bool = false,
+    pps_slice_chroma_qp_offsets_present_bit_ext: bool = false,
+    weighted_pred_bit_ext: bool = false,
+    weighted_bipred_bit_ext: bool = false,
+    weighted_pred_no_table_bit_ext: bool = false,
+    transquant_bypass_enabled_bit_ext: bool = false,
+    entropy_coding_sync_enabled_bit_ext: bool = false,
+    deblocking_filter_override_enabled_bit_ext: bool = false,
+    multiple_tile_per_frame_bit_ext: bool = false,
+    multiple_slice_per_tile_bit_ext: bool = false,
+    multiple_tile_per_slice_bit_ext: bool = false,
+    slice_segment_ctb_count_bit_ext: bool = false,
+    row_unaligned_slice_segment_bit_ext: bool = false,
+    dependent_slice_segment_bit_ext: bool = false,
+    different_slice_type_bit_ext: bool = false,
+    _reserved_bit_24: bool = false,
+    _reserved_bit_25: bool = false,
+    _reserved_bit_26: bool = false,
+    _reserved_bit_27: bool = false,
+    _reserved_bit_28: bool = false,
+    _reserved_bit_29: bool = false,
+    _reserved_bit_30: bool = false,
+    _reserved_bit_31: bool = false,
+    pub usingnamespace FlagsMixin(VideoEncodeH265CapabilityFlagsEXT, Flags);
+};
 pub const VideoEncodeH265InputModeFlagsEXT = packed struct {
     frame_bit_ext: bool align(@alignOf(Flags)) = false,
     slice_segment_bit_ext: bool = false,
@@ -13709,41 +13802,6 @@ pub const VideoEncodeH265OutputModeFlagsEXT = packed struct {
     _reserved_bit_31: bool = false,
     pub usingnamespace FlagsMixin(VideoEncodeH265OutputModeFlagsEXT, Flags);
 };
-pub const VideoEncodeH265CtbSizeFlagsEXT = packed struct {
-    @"8_bit_ext": bool align(@alignOf(Flags)) = false,
-    @"16_bit_ext": bool = false,
-    @"32_bit_ext": bool = false,
-    @"64_bit_ext": bool = false,
-    _reserved_bit_4: bool = false,
-    _reserved_bit_5: bool = false,
-    _reserved_bit_6: bool = false,
-    _reserved_bit_7: bool = false,
-    _reserved_bit_8: bool = false,
-    _reserved_bit_9: bool = false,
-    _reserved_bit_10: bool = false,
-    _reserved_bit_11: bool = false,
-    _reserved_bit_12: bool = false,
-    _reserved_bit_13: bool = false,
-    _reserved_bit_14: bool = false,
-    _reserved_bit_15: bool = false,
-    _reserved_bit_16: bool = false,
-    _reserved_bit_17: bool = false,
-    _reserved_bit_18: bool = false,
-    _reserved_bit_19: bool = false,
-    _reserved_bit_20: bool = false,
-    _reserved_bit_21: bool = false,
-    _reserved_bit_22: bool = false,
-    _reserved_bit_23: bool = false,
-    _reserved_bit_24: bool = false,
-    _reserved_bit_25: bool = false,
-    _reserved_bit_26: bool = false,
-    _reserved_bit_27: bool = false,
-    _reserved_bit_28: bool = false,
-    _reserved_bit_29: bool = false,
-    _reserved_bit_30: bool = false,
-    _reserved_bit_31: bool = false,
-    pub usingnamespace FlagsMixin(VideoEncodeH265CtbSizeFlagsEXT, Flags);
-};
 pub const VideoEncodeH265RateControlStructureFlagsEXT = packed struct {
     flat_bit_ext: bool align(@alignOf(Flags)) = false,
     dyadic_bit_ext: bool = false,
@@ -13778,6 +13836,76 @@ pub const VideoEncodeH265RateControlStructureFlagsEXT = packed struct {
     _reserved_bit_30: bool = false,
     _reserved_bit_31: bool = false,
     pub usingnamespace FlagsMixin(VideoEncodeH265RateControlStructureFlagsEXT, Flags);
+};
+pub const VideoEncodeH265CtbSizeFlagsEXT = packed struct {
+    @"16_bit_ext": bool align(@alignOf(Flags)) = false,
+    @"32_bit_ext": bool = false,
+    @"64_bit_ext": bool = false,
+    _reserved_bit_3: bool = false,
+    _reserved_bit_4: bool = false,
+    _reserved_bit_5: bool = false,
+    _reserved_bit_6: bool = false,
+    _reserved_bit_7: bool = false,
+    _reserved_bit_8: bool = false,
+    _reserved_bit_9: bool = false,
+    _reserved_bit_10: bool = false,
+    _reserved_bit_11: bool = false,
+    _reserved_bit_12: bool = false,
+    _reserved_bit_13: bool = false,
+    _reserved_bit_14: bool = false,
+    _reserved_bit_15: bool = false,
+    _reserved_bit_16: bool = false,
+    _reserved_bit_17: bool = false,
+    _reserved_bit_18: bool = false,
+    _reserved_bit_19: bool = false,
+    _reserved_bit_20: bool = false,
+    _reserved_bit_21: bool = false,
+    _reserved_bit_22: bool = false,
+    _reserved_bit_23: bool = false,
+    _reserved_bit_24: bool = false,
+    _reserved_bit_25: bool = false,
+    _reserved_bit_26: bool = false,
+    _reserved_bit_27: bool = false,
+    _reserved_bit_28: bool = false,
+    _reserved_bit_29: bool = false,
+    _reserved_bit_30: bool = false,
+    _reserved_bit_31: bool = false,
+    pub usingnamespace FlagsMixin(VideoEncodeH265CtbSizeFlagsEXT, Flags);
+};
+pub const VideoEncodeH265TransformBlockSizeFlagsEXT = packed struct {
+    @"4_bit_ext": bool align(@alignOf(Flags)) = false,
+    @"8_bit_ext": bool = false,
+    @"16_bit_ext": bool = false,
+    @"32_bit_ext": bool = false,
+    _reserved_bit_4: bool = false,
+    _reserved_bit_5: bool = false,
+    _reserved_bit_6: bool = false,
+    _reserved_bit_7: bool = false,
+    _reserved_bit_8: bool = false,
+    _reserved_bit_9: bool = false,
+    _reserved_bit_10: bool = false,
+    _reserved_bit_11: bool = false,
+    _reserved_bit_12: bool = false,
+    _reserved_bit_13: bool = false,
+    _reserved_bit_14: bool = false,
+    _reserved_bit_15: bool = false,
+    _reserved_bit_16: bool = false,
+    _reserved_bit_17: bool = false,
+    _reserved_bit_18: bool = false,
+    _reserved_bit_19: bool = false,
+    _reserved_bit_20: bool = false,
+    _reserved_bit_21: bool = false,
+    _reserved_bit_22: bool = false,
+    _reserved_bit_23: bool = false,
+    _reserved_bit_24: bool = false,
+    _reserved_bit_25: bool = false,
+    _reserved_bit_26: bool = false,
+    _reserved_bit_27: bool = false,
+    _reserved_bit_28: bool = false,
+    _reserved_bit_29: bool = false,
+    _reserved_bit_30: bool = false,
+    _reserved_bit_31: bool = false,
+    pub usingnamespace FlagsMixin(VideoEncodeH265TransformBlockSizeFlagsEXT, Flags);
 };
 pub const PfnCreateInstance = fn (
     p_create_info: *const InstanceCreateInfo,
@@ -16488,11 +16616,11 @@ pub const extension_info = struct {
     };
     pub const ext_video_encode_h_264 = Info{
         .name = "VK_EXT_video_encode_h264",
-        .version = 3,
+        .version = 5,
     };
     pub const ext_video_encode_h_265 = Info{
         .name = "VK_EXT_video_encode_h265",
-        .version = 4,
+        .version = 5,
     };
     pub const ext_video_decode_h_264 = Info{
         .name = "VK_EXT_video_decode_h264",
@@ -17284,7 +17412,7 @@ pub const extension_info = struct {
     };
     pub const khr_video_encode_queue = Info{
         .name = "VK_KHR_video_encode_queue",
-        .version = 3,
+        .version = 4,
     };
     pub const nv_device_diagnostics_config = Info{
         .name = "VK_NV_device_diagnostics_config",

@@ -24,12 +24,17 @@ pub fn build(b: *Builder) void {
     exe.linkLibC();
     exe.linkSystemLibrary("glfw");
 
+    exe.linkLibCpp();
+    exe.addIncludePath("dependencies");
+    exe.addCSourceFile("dependencies/vk_allocator.cpp", &.{"-std=c++14"});
+
     const vk = Pkg{ .name = "vulkan", .path = FileSource{ .path = "dependencies/vk/vk.zig" } };
+    const vma = Pkg{ .name = "vma", .path = FileSource{ .path = "dependencies/vk_allocator.zig" }, .dependencies = &.{vk} };
     const glfw_main = Pkg{ .name = "glfw", .path = FileSource{ .path = "dependencies/mach-glfw/src/main.zig" } };
 
     exe.addPackage(vk);
     exe.addPackage(glfw_main);
-    exe.addPackage(Pkg{ .name = "engine", .path = FileSource{ .path = "src/context.zig" }, .dependencies = &.{ vk, glfw_main } });
+    exe.addPackage(Pkg{ .name = "engine", .path = FileSource{ .path = "src/context.zig" }, .dependencies = &.{ vk, glfw_main, vma } });
 
     exe.install();
 

@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const utils = @import("utils.zig");
 const PhysicalDevice = @import("physical_device.zig");
 const glfw = @import("glfw");
+const vma = @import("vma");
 
 const QueueFamilyIndices = PhysicalDevice.QueueFamilyIndices;
 const ArrayList = std.ArrayList;
@@ -17,40 +18,51 @@ pub const application_version = vk.makeApiVersion(0, 0, 1, 0);
 pub const logicical_device_extensions = [_][*:0]const u8{vk.extension_info.khr_swapchain.name};
 pub const max_frames_in_flight = 2;
 
-const required_validation_features = [_]vk.ValidationFeatureEnableEXT{
-    .gpu_assisted_ext,
-    .best_practices_ext,
-    .synchronization_validation_ext,
-};
+// const required_validation_features = [_]vk.ValidationFeatureEnableEXT{
+//     .gpu_assisted_ext,
+//     .best_practices_ext,
+//     .synchronization_validation_ext,
+// };
 
-// const required_instance_layers = [_][*:0]const u8{
-//     "VK_LAYER_KHRONOS_synchronization2",
-// } ++ if (enable_safety) [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"} else [_][*:0]const u8{};
+const debug_extensions = [_][*:0]const u8{
+    vk.extension_info.ext_debug_report.name,
+    vk.extension_info.ext_debug_utils.name,
+};
 
 const required_instance_layers = [_][*:0]const u8{
     "VK_LAYER_LUNARG_standard_validation",
 };
+
+pub const Queue = struct {
+    handle: vk.Queue,
+    family: u32,
+
+    fn init(vkd: Device, dev: vk.Device, family: u32) Queue {
+        return .{
+            .handle = vkd.getDeviceQueue(dev, family, 0),
+            .family = family,
+        };
+    }
+};
+
 const Self = @This();
 
-allocator: Allocator,
+allocator: vma.Allocator,
 vkb: Base,
 vki: Instance,
 vkd: Device,
+surface: vk.SurfaceKHR,
 instance: vk.Instance,
 physical_device: vk.PhysicalDevice,
 device: vk.Device,
 props: vk.PhysicalDeviceProperties,
 feature: vk.PhysicalDeviceFeatures,
-compute_queue: vk.Queue,
-graphics_queue: vk.Queue,
-present_queue: vk.Queue,
-
-surface: vk.SurfaceKHR,
+memory_properties: vk.PhysicalDeviceMemoryProperties,
+compute_queue: Queue,
+graphics_queue: Queue,
+present_queue: Queue,
 queue_indices: QueueFamilyIndices,
-
-gfx_cmd_pool: vk.CommandPool,
-comp_cmd_pool: vk.CommandPool,
-
+gfx_pool: vk.CommandPool,
 messenger: ?vk.DebugUtilsMessengerEXT,
 
 // Caller should make sure to call deinit
@@ -67,30 +79,17 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
         .api_version = vk.API_VERSION_1_2,
     };
 
-    // TODO: move to global scope (currently crashes the zig compiler :') )
-    const common_extensions = [_][*:0]const u8{vk.extension_info.khr_surface.name};
-    const application_extensions = blk: {
-        if (enable_safety) {
-            const debug_extensions = [_][*:0]const u8{
-                vk.extension_info.ext_debug_report.name,
-                vk.extension_info.ext_debug_utils.name,
-            } ++ common_extensions;
-            break :blk debug_extensions[0..];
-        }
-        break :blk common_extensions[0..];
-    };
-
     const glfw_exts = try glfw.getRequiredInstanceExtensions();
 
     var instance_exts = blk: {
         if (enable_safety) {
             var exts = try std.ArrayList([*:0]const u8).initCapacity(
                 allocator,
-                glfw_exts.len + application_extensions.len,
+                glfw_exts.len + debug_extensions.len,
             );
             {
                 try exts.appendSlice(glfw_exts);
-                for (application_extensions) |e| {
+                for (debug_extensions) |e| {
                     try exts.append(e);
                 }
             }
@@ -99,6 +98,7 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
 
         break :blk glfw_exts;
     };
+
     defer if (enable_safety) {
         allocator.free(instance_exts);
     };
@@ -106,10 +106,10 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
     const validation_features = blk: {
         if (enable_safety) {
             break :blk &vk.ValidationFeaturesEXT{
-                .enabled_validation_feature_count = @truncate(u32, application_extensions.len),
+                .enabled_validation_feature_count = @truncate(u32, debug_extensions.len),
                 .p_enabled_validation_features = @ptrCast(
                     [*]const vk.ValidationFeatureEnableEXT,
-                    &application_extensions,
+                    &debug_extensions,
                 ),
                 .disabled_validation_feature_count = 0,
                 .p_disabled_validation_features = undefined,
@@ -120,11 +120,10 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
     };
 
     var self: Self = undefined;
-    self.allocator = allocator;
 
     const vk_proc = @ptrCast(vk.PfnGetInstanceProcAddr, glfw.getInstanceProcAddress);
-
     self.vkb = try Base.load(vk_proc);
+
     if (!(try utils.isInstanceExtensionsPresent(allocator, self.vkb, instance_exts))) {
         return error.InstanceExtensionNotPresent;
     }
@@ -179,10 +178,23 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
     };
 
     self.vkd = try Device.load(self.device, self.vki.dispatch.vkGetDeviceProcAddr);
-    // self.compute_queue = self.vkd.getDeviceQueue(self.physical_device, self.queue_indices.compute, 0);
-    // self.graphics_queue = self.vkd.getDeviceQueue(self.physical_device, self.queue_indices.graphics, 0);
-    // self.present_queue = self.vkd.getDeviceQueue(self.physical_device, self.queue_indices.present, 0);
+    errdefer self.vkd.destroyDevice(self.device, null);
 
+    self.compute_queue = Queue.init(self.vkd, self.device, self.queue_indices.compute.?);
+    self.graphics_queue = Queue.init(self.vkd, self.device, self.queue_indices.graphics.?);
+    self.present_queue = Queue.init(self.vkd, self.device, self.queue_indices.present.?);
+    self.memory_properties = self.vki.getPhysicalDeviceMemoryProperties(self.physical_device);
+
+    const vma_fns = getVmaVulkanFunction(self.vki, self.vkd);
+    self.allocator = try vma.Allocator.create(.{
+        .flags = .{},
+        .physicalDevice = self.physical_device,
+        .device = self.device,
+        .instance = self.instance,
+        .frameInUseCount = 0,
+        .pVulkanFunctions = &vma_fns,
+        .vulkanApiVersion = vk.API_VERSION_1_1,
+    });
     // self.gfx_cmd_pool = blk: {
     //     const pool_info = vk.CommandPoolCreateInfo{
     //         .flags = .{},
@@ -202,137 +214,8 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
     return self;
 }
 
-// TODO: remove create/destroy that are thin wrappers (make data public instead)
-/// caller must destroy returned module
-pub fn createShaderModule(self: Self, spir_v: []const u8) !vk.ShaderModule {
-    const create_info = vk.ShaderModuleCreateInfo{
-        .flags = .{},
-        .p_code = @ptrCast([*]const u32, @alignCast(4, spir_v.ptr)),
-        .code_size = spir_v.len,
-    };
-    return self.vkd.createShaderModule(self.device, &create_info, null);
-}
-
-pub fn destroyShaderModule(self: Self, module: vk.ShaderModule) void {
-    self.vkd.destroyShaderModule(self.device, module, null);
-}
-
-/// caller must destroy returned module 
-pub fn createPipelineLayout(self: Self, create_info: vk.PipelineLayoutCreateInfo) !vk.PipelineLayout {
-    return self.vkd.createPipelineLayout(self.device, &create_info, null);
-}
-
-pub fn destroyPipelineLayout(self: Self, pipeline_layout: vk.PipelineLayout) void {
-    self.vkd.destroyPipelineLayout(self.device, pipeline_layout, null);
-}
-
-/// caller must destroy pipeline from vulkan
-pub inline fn createGraphicsPipeline(self: Self, create_info: vk.GraphicsPipelineCreateInfo) !vk.Pipeline {
-    const create_infos = [_]vk.GraphicsPipelineCreateInfo{
-        create_info,
-    };
-    var pipeline: vk.Pipeline = undefined;
-    const result = try self.vkd.createGraphicsPipelines(self.device, .null_handle, create_infos.len, @ptrCast([*]const vk.GraphicsPipelineCreateInfo, &create_infos), null, @ptrCast([*]vk.Pipeline, &pipeline));
-    if (result != vk.Result.success) {
-        // TODO: not panic?
-        std.debug.panic("failed to initialize pipeline!", .{});
-    }
-    return pipeline;
-}
-
-/// caller must both destroy pipeline from the heap and in vulkan
-pub fn createComputePipeline(self: Self, allocator: Allocator, create_info: vk.ComputePipelineCreateInfo) !*vk.Pipeline {
-    var pipeline = try allocator.create(vk.Pipeline);
-    errdefer allocator.destroy(pipeline);
-
-    const create_infos = [_]vk.ComputePipelineCreateInfo{
-        create_info,
-    };
-    const result = try self.vkd.createComputePipelines(self.device, .null_handle, create_infos.len, @ptrCast([*]const vk.ComputePipelineCreateInfo, &create_infos), null, @ptrCast([*]vk.Pipeline, pipeline));
-    if (result != vk.Result.success) {
-        // TODO: not panic?
-        std.debug.panic("failed to initialize pipeline!", .{});
-    }
-
-    return pipeline;
-}
-
-/// destroy pipeline from vulkan *not* from the application memory
-pub fn destroyPipeline(self: Self, pipeline: *vk.Pipeline) void {
-    self.vkd.destroyPipeline(self.device, pipeline.*, null);
-}
-
-/// caller must destroy returned render pass
-pub fn createRenderPass(self: Self, format: vk.Format) !vk.RenderPass {
-    const color_attachment = [_]vk.AttachmentDescription{
-        .{
-            .flags = .{},
-            .format = format,
-            .samples = .{
-                .@"1_bit" = true,
-            },
-            .load_op = .clear,
-            .store_op = .store,
-            .stencil_load_op = .dont_care,
-            .stencil_store_op = .dont_care,
-            .initial_layout = .@"undefined",
-            .final_layout = .present_src_khr,
-        },
-    };
-    const color_attachment_refs = [_]vk.AttachmentReference{
-        .{
-            .attachment = 0,
-            .layout = .color_attachment_optimal,
-        },
-    };
-    const subpass = [_]vk.SubpassDescription{
-        .{
-            .flags = .{},
-            .pipeline_bind_point = .graphics,
-            .input_attachment_count = 0,
-            .p_input_attachments = undefined,
-            .color_attachment_count = color_attachment_refs.len,
-            .p_color_attachments = &color_attachment_refs,
-            .p_resolve_attachments = null,
-            .p_depth_stencil_attachment = null,
-            .preserve_attachment_count = 0,
-            .p_preserve_attachments = undefined,
-        },
-    };
-    const subpass_dependency = vk.SubpassDependency{
-        .src_subpass = vk.SUBPASS_EXTERNAL,
-        .dst_subpass = 0,
-        .src_stage_mask = .{
-            .color_attachment_output_bit = true,
-        },
-        .dst_stage_mask = .{
-            .color_attachment_output_bit = true,
-        },
-        .src_access_mask = .{},
-        .dst_access_mask = .{
-            .color_attachment_write_bit = true,
-        },
-        .dependency_flags = .{},
-    };
-    const render_pass_info = vk.RenderPassCreateInfo{
-        .flags = .{},
-        .attachment_count = color_attachment.len,
-        .p_attachments = &color_attachment,
-        .subpass_count = subpass.len,
-        .p_subpasses = &subpass,
-        .dependency_count = 1,
-        .p_dependencies = @ptrCast([*]const vk.SubpassDependency, &subpass_dependency),
-    };
-    return try self.vkd.createRenderPass(self.device, &render_pass_info, null);
-}
-
-pub fn destroyRenderPass(self: Self, render_pass: vk.RenderPass) void {
-    self.vkd.destroyRenderPass(self.device, render_pass, null);
-}
-
 pub fn deinit(self: Self) void {
-    self.vkd.destroyCommandPool(self.device, self.gfx_cmd_pool, null);
-    self.vkd.destroyCommandPool(self.device, self.comp_cmd_pool, null);
+    self.vkd.destroyCommandPool(self.device, self.gfx_pool, null);
     self.vki.destroySurfaceKHR(self.instance, self.surface, null);
     self.vkd.destroyDevice(self.device, null);
 
@@ -349,6 +232,7 @@ pub const Base = vk.BaseWrapper(.{
 });
 
 pub const Instance = vk.InstanceWrapper(.{
+    //vma
     .getPhysicalDeviceProperties = true,
     .getPhysicalDeviceMemoryProperties = true,
 
@@ -374,26 +258,17 @@ pub const Instance = vk.InstanceWrapper(.{
 });
 
 pub const Device = vk.DeviceWrapper(.{
+    //vma
     .createImage = true,
-    .createBuffer = true,
     .destroyImage = true,
-    .destroyBuffer = true,
-    .cmdCopyBuffer = true,
     .bindImageMemory = true,
-    .bindBufferMemory = true,
     .getImageMemoryRequirements2 = true,
     .getBufferMemoryRequirements2 = true,
-    .mapMemory = true,
-    .freeMemory = true,
-    .unmapMemory = true,
-    .allocateMemory = true,
     .flushMappedMemoryRanges = true,
-
     //debug
-    .cmdBeginDebugUtilsLabelEXT = enable_safety,
-    .cmdEndDebugUtilsLabelEXT = enable_safety,
-    .cmdInsertDebugUtilsLabelEXT = enable_safety,
-    .setDebugUtilsObjectNameEXT = enable_safety,
+
+    // .cmdInsertDebugUtilsLabelEXT = enable_safety,
+    // .setDebugUtilsObjectNameEXT = enable_safety,
 
     //normal
     .destroyDevice = true,
@@ -411,6 +286,7 @@ pub const Device = vk.DeviceWrapper(.{
     .deviceWaitIdle = true,
     .waitForFences = true,
     .resetFences = true,
+    .queueSubmit = true,
     .queuePresentKHR = true,
     .createCommandPool = true,
     .destroyCommandPool = true,
@@ -427,37 +303,24 @@ pub const Device = vk.DeviceWrapper(.{
     .destroyPipeline = true,
     .createFramebuffer = true,
     .destroyFramebuffer = true,
-    .createDescriptorSetLayout = true,
-    .destroyDescriptorSetLayout = true,
-    .createSampler = true,
-    .destroySampler = true,
-    .createDescriptorPool = true,
-    .destroyDescriptorPool = true,
-    .allocateDescriptorSets = true,
-    .updateDescriptorSets = true,
     .beginCommandBuffer = true,
-    .resetCommandPool = true,
     .endCommandBuffer = true,
-    .cmdDraw = true,
-    .cmdBlitImage = true,
-    .cmdSetScissor = true,
-    .cmdSetViewport = true,
-    .cmdDrawIndexed = true,
-    .cmdBindPipeline = true,
-    .cmdPushConstants = true,
-    .cmdEndRenderPass = true,
+    .allocateMemory = true,
+    .freeMemory = true,
+    .createBuffer = true,
+    .destroyBuffer = true,
+    .getBufferMemoryRequirements = true,
+    .mapMemory = true,
+    .unmapMemory = true,
+    .bindBufferMemory = true,
     .cmdBeginRenderPass = true,
-    .queueSubmit2 = true,
-    // .queueSubmit = true,
-    // .cmdSetEvent2 = true,
-    // .cmdResetEvent2 = true,
-    // .cmdWaitEvents2 = true,
-    .cmdBindIndexBuffer = true,
-    .cmdCopyBufferToImage = true,
+    .cmdEndRenderPass = true,
+    .cmdBindPipeline = true,
+    .cmdDraw = true,
+    .cmdSetViewport = true,
+    .cmdSetScissor = true,
     .cmdBindVertexBuffers = true,
-    .cmdBindDescriptorSets = true,
-    .cmdPipelineBarrier2 = true,
-    .cmdPushDescriptorSetKHR = true,
+    .cmdCopyBuffer = true,
 });
 
 // zig fmt: on
@@ -509,4 +372,33 @@ fn debugCallback(
     }
 
     return vk.FALSE;
+}
+
+pub fn getVmaVulkanFunction(vki: Instance, vkd: Device) vma.VulkanFunctions {
+    return .{
+        .getInstanceProcAddr = undefined,
+        .getDeviceProcAddr = undefined,
+        .getPhysicalDeviceProperties = vki.dispatch.vkGetPhysicalDeviceProperties,
+        .getPhysicalDeviceMemoryProperties = vki.dispatch.vkGetPhysicalDeviceMemoryProperties,
+        .allocateMemory = vkd.dispatch.vkAllocateMemory,
+        .freeMemory = vkd.dispatch.vkFreeMemory,
+        .mapMemory = vkd.dispatch.vkMapMemory,
+        .unmapMemory = vkd.dispatch.vkUnmapMemory,
+        .flushMappedMemoryRanges = vkd.dispatch.vkFlushMappedMemoryRanges,
+        .invalidateMappedMemoryRanges = undefined,
+        .bindBufferMemory = vkd.dispatch.vkBindBufferMemory,
+        .bindImageMemory = vkd.dispatch.vkBindImageMemory,
+        .getBufferMemoryRequirements = undefined,
+        .getImageMemoryRequirements = undefined,
+        .createBuffer = vkd.dispatch.vkCreateBuffer,
+        .destroyBuffer = vkd.dispatch.vkDestroyBuffer,
+        .createImage = vkd.dispatch.vkCreateImage,
+        .destroyImage = vkd.dispatch.vkDestroyImage,
+        .cmdCopyBuffer = vkd.dispatch.vkCmdCopyBuffer,
+        .getBufferMemoryRequirements2 = vkd.dispatch.vkGetBufferMemoryRequirements2,
+        .getImageMemoryRequirements2 = vkd.dispatch.vkGetImageMemoryRequirements2,
+        .bindBufferMemory2 = undefined,
+        .bindImageMemory2 = undefined,
+        .getPhysicalDeviceMemoryProperties2 = undefined,
+    };
 }
