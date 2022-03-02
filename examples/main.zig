@@ -11,14 +11,9 @@ pub fn main() !void {
     try glfw.init(.{});
     defer glfw.terminate();
 
-    if (!glfw.vulkanSupported()) {
-        std.debug.panic("vulkan not supported on device (glfw)", .{});
-    }
-
     // Create a windowed mode window
     var window = glfw.Window.create(800, 800, "sprite test", null, null, .{ .client_api = .no_api }) catch |err| {
         std.debug.panic("failed to create window, code: {}", .{err});
-        return;
     };
     defer window.destroy();
 

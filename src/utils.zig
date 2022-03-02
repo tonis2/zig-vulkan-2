@@ -5,9 +5,7 @@ const Allocator = std.mem.Allocator;
 const Context = @import("context.zig");
 
 pub fn isInstanceExtensionsPresent(allocator: Allocator, vkb: Context.Base, target_extensions: []const [*:0]const u8) !bool {
-    // query extensions available
     var supported_extensions_count: u32 = 0;
-    // TODO: handle "VkResult.incomplete"
     _ = try vkb.enumerateInstanceExtensionProperties(null, &supported_extensions_count, null);
 
     var extensions = try std.ArrayList(vk.ExtensionProperties).initCapacity(allocator, supported_extensions_count);

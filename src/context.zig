@@ -9,6 +9,7 @@ const vma = @import("vma");
 
 const QueueFamilyIndices = PhysicalDevice.QueueFamilyIndices;
 const ArrayList = std.ArrayList;
+const Buffer = @import("buffer.zig");
 
 // Constants
 pub const enable_safety = builtin.mode == .Debug;
@@ -62,7 +63,7 @@ compute_queue: Queue,
 graphics_queue: Queue,
 present_queue: Queue,
 queue_indices: QueueFamilyIndices,
-gfx_pool: vk.CommandPool,
+command_pool: vk.CommandPool,
 messenger: ?vk.DebugUtilsMessengerEXT,
 
 // Caller should make sure to call deinit
@@ -133,7 +134,7 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
             .p_next = validation_features,
             .flags = .{},
             .p_application_info = &app_info,
-            .enabled_layer_count = if (enable_safety) 1,
+            .enabled_layer_count = if (enable_safety) 1 else 0,
             .pp_enabled_layer_names = &required_instance_layers,
             .enabled_extension_count = @intCast(u32, instance_exts.len),
             .pp_enabled_extension_names = @ptrCast([*]const [*:0]const u8, instance_exts),
@@ -185,37 +186,70 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
     self.present_queue = Queue.init(self.vkd, self.device, self.queue_indices.present.?);
     self.memory_properties = self.vki.getPhysicalDeviceMemoryProperties(self.physical_device);
 
-    const vma_fns = getVmaVulkanFunction(self.vki, self.vkd);
     self.allocator = try vma.Allocator.create(.{
         .flags = .{},
         .physicalDevice = self.physical_device,
         .device = self.device,
         .instance = self.instance,
         .frameInUseCount = 0,
-        .pVulkanFunctions = &vma_fns,
-        .vulkanApiVersion = vk.API_VERSION_1_1,
+        .pVulkanFunctions = &getVmaVulkanFunction(self.vki, self.vkd),
+        .vulkanApiVersion = vk.API_VERSION_1_2,
     });
-    // self.gfx_cmd_pool = blk: {
-    //     const pool_info = vk.CommandPoolCreateInfo{
-    //         .flags = .{},
-    //         .queue_family_index = self.queue_indices.graphics.?,
-    //     };
-    //     break :blk try self.vkd.createCommandPool(self.device, &pool_info, null);
-    // };
 
-    // self.comp_cmd_pool = blk: {
-    //     const pool_info = vk.CommandPoolCreateInfo{
-    //         .flags = .{},
-    //         .queue_family_index = self.queue_indices.compute.?,
-    //     };
-    //     break :blk try self.vkd.createCommandPool(self.device, &pool_info, null);
-    // };
+    self.command_pool = try self.vkd.createCommandPool(self.device, &.{
+        .flags = .{},
+        .queue_family_index = self.graphics_queue.family,
+    }, null);
+    errdefer self.vkd.destroyCommandPool(self.device, self.command_pool, null);
 
     return self;
 }
 
+pub fn beginOneTimeCommandBuffer(self: Self) !vk.CommandBuffer {
+    var cmdbuf: vk.CommandBuffer = undefined;
+    try self.vkd.allocateCommandBuffers(self.dev, &.{
+        .command_pool = self.pool,
+        .level = .primary,
+        .command_buffer_count = 1,
+    }, @ptrCast([*]vk.CommandBuffer, &cmdbuf));
+
+    try self.vkd.beginCommandBuffer(cmdbuf, &.{
+        .flags = .{ .one_time_submit_bit = true },
+        .p_inheritance_info = null,
+    });
+    return cmdbuf;
+}
+
+pub fn endOneTimeCommandBuffer(self: Self, cmdbuf: vk.CommandBuffer) !void {
+    try self.vkd.endCommandBuffer(cmdbuf);
+    // Create fence to ensure that the command buffer has finished executing
+
+    const fence = try self.vkd.createFence(self.device, &.{ .flags = .{} }, null);
+    errdefer self.vkd.destroyFence(self.device, fence, null);
+
+    // Submit to the queue
+    try self.vkd.queueSubmit2(self.graphics_queue.handle, 1, &[_]vk.SubmitInfo2{.{
+        .flags = .{},
+        .wait_semaphore_info_count = 0,
+        .p_wait_semaphore_infos = undefined,
+        .command_buffer_info_count = 1,
+        .p_command_buffer_infos = &[_]vk.CommandBufferSubmitInfo{.{
+            .command_buffer = cmdbuf,
+            .device_mask = 0,
+        }},
+        .signal_semaphore_info_count = 0,
+        .p_signal_semaphore_infos = undefined,
+    }}, fence);
+
+    // Wait for the fence to signal that command buffer has finished executing
+    _ = try self.vkd.waitForFences(self.device, 1, @ptrCast([*]const vk.Fence, &fence), vk.TRUE, std.math.maxInt(u64));
+
+    self.vkd.destroyFence(self.device, fence, null);
+    self.vkd.freeCommandBuffers(self.device, self.command_pool, 1, @ptrCast([*]const vk.CommandBuffer, &cmdbuf));
+}
+
 pub fn deinit(self: Self) void {
-    self.vkd.destroyCommandPool(self.device, self.gfx_pool, null);
+    self.vkd.destroyCommandPool(self.device, self.command_pool, null);
     self.vki.destroySurfaceKHR(self.instance, self.surface, null);
     self.vkd.destroyDevice(self.device, null);
 
@@ -324,8 +358,6 @@ pub const Device = vk.DeviceWrapper(.{
 });
 
 // zig fmt: on
-
-pub const BeginCommandBufferError = Device.BeginCommandBufferError;
 
 fn debugCallback(
     message_severity: vk.DebugUtilsMessageSeverityFlagsEXT.IntType,
