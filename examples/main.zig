@@ -2,11 +2,13 @@ const std = @import("std");
 const vk = @import("vk");
 const glfw = @import("glfw");
 const engine = @import("engine");
+const Swapchain = engine.Swapchain;
 
 pub fn main() !void {
-    // create a gpa with default configuration
-    var alloc = std.heap.GeneralPurposeAllocator(.{}){};
-
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer std.debug.assert(!gpa.deinit());
+    
     // Initialize the library *
     try glfw.init(.{});
     defer glfw.terminate();
@@ -17,8 +19,11 @@ pub fn main() !void {
     };
     defer window.destroy();
 
-    const ctx = try engine.init(alloc.allocator(), "sprite test", &window);
+    const ctx = try engine.init(allocator, "sprite test", &window);
     defer ctx.deinit();
+
+    const swapchain = try Swapchain.init(ctx, allocator, .{ .width = 800, .height = 800 });
+    defer swapchain.deinit(ctx);
 
     _ = ctx;
 }

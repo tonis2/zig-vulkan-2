@@ -18,6 +18,7 @@ pub const engine_version = vk.makeApiVersion(0, 0, 1, 0);
 pub const application_version = vk.makeApiVersion(0, 0, 1, 0);
 pub const logicical_device_extensions = [_][*:0]const u8{vk.extension_info.khr_swapchain.name};
 pub const max_frames_in_flight = 2;
+pub const Swapchain = @import("swapchain.zig");
 
 // const required_validation_features = [_]vk.ValidationFeatureEnableEXT{
 //     .gpu_assisted_ext,
