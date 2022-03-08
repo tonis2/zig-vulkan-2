@@ -8,7 +8,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer std.debug.assert(!gpa.deinit());
-    
+
     // Initialize the library *
     try glfw.init(.{});
     defer glfw.terminate();
@@ -22,8 +22,9 @@ pub fn main() !void {
     const ctx = try engine.init(allocator, "sprite test", &window);
     defer ctx.deinit();
 
-    const swapchain = try Swapchain.init(ctx, allocator, .{ .width = 800, .height = 800 });
-    defer swapchain.deinit(ctx);
+    try Swapchain.init(allocator, ctx, .{ .width = 800, .height = 800 }, null);
+
+    // defer swapchain.deinit(ctx);
 
     _ = ctx;
 }
