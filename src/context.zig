@@ -183,8 +183,8 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
     errdefer self.vkd.destroyDevice(self.device, null);
 
     self.compute_queue = Queue.init(self.vkd, self.device, self.queue_indices.compute.?);
-    self.graphics_queue = Queue.init(self.vkd, self.device, self.queue_indices.graphics.?);
-    self.present_queue = Queue.init(self.vkd, self.device, self.queue_indices.present.?);
+    self.graphics_queue = Queue.init(self.vkd, self.device, self.queue_indices.graphics);
+    self.present_queue = Queue.init(self.vkd, self.device, self.queue_indices.present);
     self.memory_properties = self.vki.getPhysicalDeviceMemoryProperties(self.physical_device);
 
     self.allocator = try vma.Allocator.create(.{

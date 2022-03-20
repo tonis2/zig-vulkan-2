@@ -22,9 +22,9 @@ pub fn main() !void {
     const ctx = try engine.init(allocator, "sprite test", &window);
     defer ctx.deinit();
 
-    try Swapchain.init(allocator, ctx, .{ .width = 800, .height = 800 }, null);
+    const swapchain = try Swapchain.init(allocator, ctx, .{ .width = 800, .height = 800 }, null);
 
-    // defer swapchain.deinit(ctx);
+    defer swapchain.deinit(ctx);
 
-    _ = ctx;
+    // _ = ctx;
 }

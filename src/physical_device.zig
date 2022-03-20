@@ -16,15 +16,12 @@ const required_device_extensions = [_][*:0]const u8{
 
 const required_device_feature = vk.PhysicalDeviceFeatures{
     .sampler_anisotropy = vk.TRUE,
-    .sample_rate_shading = vk.TRUE,
-    .texture_compression_bc = vk.TRUE,
-    .shader_int_16 = vk.TRUE,
 };
 
 pub const QueueFamilyIndices = struct {
     compute: ?u32,
-    graphics: ?u32,
-    present: ?u32,
+    graphics: u32,
+    present: u32,
 };
 
 pub const DeviceCandidate = struct {
@@ -32,6 +29,7 @@ pub const DeviceCandidate = struct {
     props: vk.PhysicalDeviceProperties,
     feature: vk.PhysicalDeviceFeatures,
     queues: QueueFamilyIndices,
+    extensions: u32,
 
     pub fn init(
         vki: Context.Instance,
@@ -47,12 +45,23 @@ pub const DeviceCandidate = struct {
 
         _ = try vki.enumeratePhysicalDevices(instance, &device_count, pdevs.ptr);
 
-        for (pdevs) |pdev| {
-            if (try checkSuitable(vki, pdev, allocator, surface)) |device| {
-                return device;
+        const deviceCandidates = try allocator.alloc(DeviceCandidate, device_count);
+        defer allocator.free(deviceCandidates);
+
+        for (pdevs) |pdev, index| {
+            const device = try checkSuitable(vki, pdev, allocator, surface);
+            if (device != null) deviceCandidates[index] = device.?;
+        }
+
+        var extensions: u32 = 0;
+        var best_candidate: ?DeviceCandidate = null;
+        for (deviceCandidates) |candidate| {
+            if (candidate.extensions > extensions) {
+                best_candidate = candidate;
             }
         }
 
+        if (best_candidate != null) return best_candidate.?;
         return error.NoSuitableDevice;
     }
 
@@ -62,18 +71,62 @@ pub const DeviceCandidate = struct {
         allocator: Allocator,
         surface: vk.SurfaceKHR,
     ) !?DeviceCandidate {
-        const props = vki.getPhysicalDeviceProperties(pdev);
-        _ = try checkExtensionSupport(vki, pdev, allocator);
-        _ = try checkSurfaceSupport(vki, pdev, surface);
+        const extensionSupport: ?u32 = blk: {
+            var count: u32 = undefined;
+            _ = try vki.enumerateDeviceExtensionProperties(pdev, null, &count, null);
+
+            const propsv = try allocator.alloc(vk.ExtensionProperties, count);
+            defer allocator.free(propsv);
+
+            _ = try vki.enumerateDeviceExtensionProperties(pdev, null, &count, propsv.ptr);
+
+            for (required_device_extensions) |ext| {
+                for (propsv) |props| {
+                    const len = std.mem.indexOfScalar(u8, &props.extension_name, 0).?;
+                    const prop_ext_name = props.extension_name[0..len];
+                    if (std.mem.eql(u8, std.mem.span(ext), prop_ext_name)) {
+                        break;
+                    }
+                } else {
+                    return error.NoExtensions;
+                }
+            }
+
+            break :blk count;
+        };
 
         const feature = vki.getPhysicalDeviceFeatures(pdev);
-        inline for (std.meta.fields(vk.PhysicalDeviceFeatures)) |field| {
-            if (@field(required_device_feature, field.name) == vk.TRUE) {
-                if (@field(feature, field.name) == vk.FALSE) return null;
+        const supportsDeviceFeatures: bool = brk: {
+            inline for (std.meta.fields(vk.PhysicalDeviceFeatures)) |field| {
+                if (@field(required_device_feature, field.name) == vk.TRUE) {
+                    if (@field(feature, field.name) == 0) break :brk false;
+                }
             }
-        }
+            break :brk true;
+        };
+        if (!supportsDeviceFeatures) return null;
+
+        const surfaceSupport = brk: {
+            var format_count: u32 = undefined;
+            _ = try vki.getPhysicalDeviceSurfaceFormatsKHR(pdev, surface, &format_count, null);
+
+            var present_mode_count: u32 = undefined;
+            _ = try vki.getPhysicalDeviceSurfacePresentModesKHR(pdev, surface, &present_mode_count, null);
+
+            break :brk format_count > 0 and present_mode_count > 0;
+        };
+
+        if (!surfaceSupport) return null;
         if (try allocateQueues(vki, pdev, allocator, surface)) |queues| {
-            return DeviceCandidate{ .pdev = pdev, .props = props, .feature = feature, .queues = queues };
+            // zig fmt: off
+            return DeviceCandidate{ 
+                .pdev = pdev, 
+                .props = vki.getPhysicalDeviceProperties(pdev), 
+                .feature = feature, 
+                .queues = queues, 
+                .extensions = extensionSupport orelse 0, 
+            // zig fmt: on
+            };
         }
         return null;
     }
@@ -83,13 +136,13 @@ pub const DeviceCandidate = struct {
         const qci = [_]vk.DeviceQueueCreateInfo{
             .{
                 .flags = .{},
-                .queue_family_index = self.queues.graphics.?,
+                .queue_family_index = self.queues.graphics,
                 .queue_count = 1,
                 .p_queue_priorities = &priority,
             },
             .{
                 .flags = .{},
-                .queue_family_index = self.queues.present.?,
+                .queue_family_index = self.queues.present,
                 .queue_count = 1,
                 .p_queue_priorities = &priority,
             },
@@ -177,20 +230,10 @@ fn allocateQueues(vki: Context.Instance, pdev: vk.PhysicalDevice, allocator: All
     }
 
     if (graphics_family != null and present_family != null) {
-        return QueueFamilyIndices{ .graphics = graphics_family.?, .present = present_family.?, .compute = compute_family.? };
+        return QueueFamilyIndices{ .graphics = graphics_family.?, .present = present_family.?, .compute = compute_family };
     }
 
     return null;
-}
-
-fn checkSurfaceSupport(vki: Context.Instance, pdev: vk.PhysicalDevice, surface: vk.SurfaceKHR) !bool {
-    var format_count: u32 = undefined;
-    _ = try vki.getPhysicalDeviceSurfaceFormatsKHR(pdev, surface, &format_count, null);
-
-    var present_mode_count: u32 = undefined;
-    _ = try vki.getPhysicalDeviceSurfacePresentModesKHR(pdev, surface, &present_mode_count, null);
-
-    return format_count > 0 and present_mode_count > 0;
 }
 
 fn isFormatSupport(vki: Context.Instance, p_dev: vk.PhysicalDevice, format: vk.Format) bool {
@@ -201,36 +244,11 @@ fn isFormatSupport(vki: Context.Instance, p_dev: vk.PhysicalDevice, format: vk.F
     });
 }
 
-fn checkExtensionSupport(
-    vki: Context.Instance,
-    pdev: vk.PhysicalDevice,
-    allocator: Allocator,
-) !bool {
-    var count: u32 = undefined;
-    _ = try vki.enumerateDeviceExtensionProperties(pdev, null, &count, null);
+// fn checkExtensionSupport(
+//     vki: Context.Instance,
+//     pdev: vk.PhysicalDevice,
+//     allocator: Allocator,
+// ) !bool {
 
-    const propsv = try allocator.alloc(vk.ExtensionProperties, count);
-    defer allocator.free(propsv);
-
-    _ = try vki.enumerateDeviceExtensionProperties(pdev, null, &count, propsv.ptr);
-
-    // for (propsv) |props| {
-    //     const len = std.mem.indexOfScalar(u8, &props.extension_name, 0).?;
-    //     const prop_ext_name = props.extension_name[0..len];
-    //     std.log.info("{s}", .{prop_ext_name});
-    // }
-
-    for (required_device_extensions) |ext| {
-        for (propsv) |props| {
-            const len = std.mem.indexOfScalar(u8, &props.extension_name, 0).?;
-            const prop_ext_name = props.extension_name[0..len];
-            if (std.mem.eql(u8, std.mem.span(ext), prop_ext_name)) {
-                break;
-            }
-        } else {
-            return false;
-        }
-    }
-
-    return true;
-}
+//     return true;
+// }
