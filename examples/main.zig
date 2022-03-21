@@ -14,7 +14,7 @@ pub fn main() !void {
     defer glfw.terminate();
 
     // Create a windowed mode window
-    var window = glfw.Window.create(800, 800, "sprite test", null, null, .{ .client_api = .no_api }) catch |err| {
+    var window = glfw.Window.create(800, 800, "vulkan-test", null, null, .{ .client_api = .no_api }) catch |err| {
         std.debug.panic("failed to create window, code: {}", .{err});
     };
     defer window.destroy();
@@ -23,8 +23,12 @@ pub fn main() !void {
     defer ctx.deinit();
 
     const swapchain = try Swapchain.init(allocator, ctx, .{ .width = 800, .height = 800 }, null);
+    const commandBuffers = try ctx.createCommandBuffers(allocator, @truncate(u32, swapchain.image_views.len));
 
-    defer swapchain.deinit(ctx);
+    defer {
+        swapchain.deinit(ctx);
+        ctx.deinitCmdBuffer(allocator, commandBuffers);
+    }
 
     // _ = ctx;
 }

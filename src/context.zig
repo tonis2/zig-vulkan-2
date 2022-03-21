@@ -209,7 +209,7 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
 pub fn beginOneTimeCommandBuffer(self: Self) !vk.CommandBuffer {
     var cmdbuf: vk.CommandBuffer = undefined;
     try self.vkd.allocateCommandBuffers(self.dev, &.{
-        .command_pool = self.pool,
+        .command_pool = self.command_pool,
         .level = .primary,
         .command_buffer_count = 1,
     }, @ptrCast([*]vk.CommandBuffer, &cmdbuf));
@@ -247,6 +247,24 @@ pub fn endOneTimeCommandBuffer(self: Self, cmdbuf: vk.CommandBuffer) !void {
 
     self.vkd.destroyFence(self.device, fence, null);
     self.vkd.freeCommandBuffers(self.device, self.command_pool, 1, @ptrCast([*]const vk.CommandBuffer, &cmdbuf));
+}
+
+pub fn createCommandBuffers(self: Self, allocator: Allocator, len: u32) ![]vk.CommandBuffer {
+    const cmdbufs = try allocator.alloc(vk.CommandBuffer, len);
+    errdefer allocator.free(cmdbufs);
+
+    try self.vkd.allocateCommandBuffers(self.device, &.{
+        .command_pool = self.command_pool,
+        .level = .primary,
+        .command_buffer_count = @truncate(u32, cmdbufs.len),
+    }, cmdbufs.ptr);
+    errdefer self.vkd.freeCommandBuffers(self.device, self.command_pool, @truncate(u32, cmdbufs.len), cmdbufs.ptr);
+    return cmdbufs;
+}
+
+pub fn deinitCmdBuffer(self: Self, allocator: Allocator, buffers: []vk.CommandBuffer) void {
+    self.vkd.freeCommandBuffers(self.device, self.command_pool, @truncate(u32, buffers.len), buffers.ptr);
+    allocator.free(buffers);
 }
 
 pub fn deinit(self: Self) void {
