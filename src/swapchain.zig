@@ -6,9 +6,8 @@ const Context = @import("context.zig");
 const Swapchain = @This();
 
 allocator: Allocator,
-swapchain: vk.SwapchainKHR,
-images: []vk.Image,
-image_views: []vk.ImageView,
+swapchain_khr: vk.SwapchainKHR,
+images: []SwapImage,
 format: vk.Format,
 extent: vk.Extent2D,
 support_details: SupportDetails,
@@ -20,15 +19,16 @@ const Config = struct {
 };
 
 pub fn init(allocator: Allocator, ctx: Context, extent: vk.Extent2D, old_swapchain: ?vk.SwapchainKHR) !Swapchain {
-    const support_details = try SupportDetails.init(allocator, ctx);
-    errdefer support_details.deinit(allocator);
-    const swapchain_extent = support_details.constructSwapChainExtent(extent);
+    const supportDetails = try SupportDetails.init(allocator, ctx);
+    errdefer supportDetails.deinit(allocator);
+
+    const swapchain_extent = supportDetails.constructSwapChainExtent(extent);
 
     const sc_create_info = blk1: {
-        const format = support_details.selectSwapChainFormat();
-        const present_mode = support_details.selectSwapchainPresentMode();
+        const format = supportDetails.selectSwapChainFormat();
+        const present_mode = supportDetails.selectSwapchainPresentMode();
 
-        const image_count = std.math.min(support_details.capabilities.min_image_count + 1, support_details.capabilities.max_image_count);
+        const image_count = std.math.min(supportDetails.capabilities.min_image_count + 1, supportDetails.capabilities.max_image_count);
         const sharing_config = blk2: {
             if (ctx.queue_indices.graphics != ctx.queue_indices.present) {
                 const indices_arr = [_]u32{ ctx.queue_indices.graphics, ctx.queue_indices.present };
@@ -59,7 +59,7 @@ pub fn init(allocator: Allocator, ctx: Context, extent: vk.Extent2D, old_swapcha
             .image_sharing_mode = sharing_config.sharing_mode,
             .queue_family_index_count = sharing_config.index_count,
             .p_queue_family_indices = sharing_config.p_indices,
-            .pre_transform = support_details.capabilities.current_transform,
+            .pre_transform = supportDetails.capabilities.current_transform,
             .composite_alpha = vk.CompositeAlphaFlagsKHR{ .opaque_bit_khr = true },
             .present_mode = present_mode,
             .clipped = vk.TRUE,
@@ -68,31 +68,62 @@ pub fn init(allocator: Allocator, ctx: Context, extent: vk.Extent2D, old_swapcha
     };
 
     const swapchain_khr = try ctx.vkd.createSwapchainKHR(ctx.device, &sc_create_info, null);
-    const swapchain_images = blk: {
-        var image_count: u32 = 0;
 
-        _ = try ctx.vkd.getSwapchainImagesKHR(ctx.device, swapchain_khr, &image_count, null);
+    var image_count: u32 = 0;
 
-        var images = try allocator.alloc(vk.Image, image_count);
-        errdefer allocator.free(images);
+    _ = try ctx.vkd.getSwapchainImagesKHR(ctx.device, swapchain_khr, &image_count, null);
 
-        _ = try ctx.vkd.getSwapchainImagesKHR(ctx.device, swapchain_khr, &image_count, images.ptr);
-        images.len = image_count;
-        break :blk images;
-    };
+    const images = try allocator.alloc(vk.Image, image_count);
+    defer allocator.free(images);
+
+    _ = try ctx.vkd.getSwapchainImagesKHR(ctx.device, swapchain_khr, &image_count, images.ptr);
+
+    var swapchain_images = try allocator.alloc(SwapImage, image_count);
     errdefer allocator.free(swapchain_images);
 
-    const image_views = blk: {
-        const image_view_count = swapchain_images.len;
-        var views = try allocator.alloc(vk.ImageView, image_view_count);
-        errdefer allocator.free(views);
+    for (images) |image, index| {
+        swapchain_images[index] = try SwapImage.init(ctx, image, sc_create_info.image_format);
+        errdefer swapchain_images[index].deinit(ctx);
+    }
 
+    return Swapchain{
+        .allocator = allocator,
+        .support_details = supportDetails,
+        .format = sc_create_info.image_format,
+        .extent = swapchain_extent,
+        .swapchain_khr = swapchain_khr,
+        .images = swapchain_images,
+    };
+}
+
+pub fn deinit(self: Swapchain, ctx: Context) void {
+    for (self.images) |image| {
+        image.deinit(ctx);
+    }
+    self.support_details.deinit(self.allocator);
+    ctx.vkd.destroySwapchainKHR(ctx.device, self.swapchain_khr, null);
+}
+
+pub const SwapImage = struct {
+    image: vk.Image,
+    view: vk.ImageView,
+    image_acquired: vk.Semaphore,
+    render_finished: vk.Semaphore,
+    frame_fence: vk.Fence,
+    cmdbuf: ?vk.CommandBuffer = null,
+
+    fn init(
+        ctx: Context,
+        image: vk.Image,
+        format: vk.Format,
+    ) !SwapImage {
         const components = vk.ComponentMapping{
             .r = .identity,
             .g = .identity,
             .b = .identity,
             .a = .identity,
         };
+
         const subresource_range = vk.ImageSubresourceRange{
             .aspect_mask = .{ .color_bit = true },
             .base_mip_level = 0,
@@ -100,46 +131,61 @@ pub fn init(allocator: Allocator, ctx: Context, extent: vk.Extent2D, old_swapcha
             .base_array_layer = 0,
             .layer_count = 1,
         };
-        {
-            var i: u32 = 0;
-            while (i < image_view_count) : (i += 1) {
-                const create_info = vk.ImageViewCreateInfo{
-                    .flags = .{},
-                    .image = swapchain_images[i],
-                    .view_type = .@"2d",
-                    .format = sc_create_info.image_format,
-                    .components = components,
-                    .subresource_range = subresource_range,
-                };
-                views[i] = try ctx.vkd.createImageView(ctx.device, &create_info, null);
-            }
-        }
+        const create_info = vk.ImageViewCreateInfo{
+            .flags = .{},
+            .image = image,
+            .view_type = .@"2d",
+            .format = format,
+            .components = components,
+            .subresource_range = subresource_range,
+        };
 
-        break :blk views;
-    };
-    errdefer allocator.free(image_views);
+        const imageView = try ctx.vkd.createImageView(ctx.device, &create_info, null);
+        errdefer ctx.vkd.destroyImageView(ctx.device, imageView, null);
 
-    return Swapchain{
-        .allocator = allocator,
-        .swapchain = swapchain_khr,
-        .images = swapchain_images,
-        .image_views = image_views,
-        .format = sc_create_info.image_format,
-        .extent = sc_create_info.image_extent,
-        .support_details = support_details,
-    };
-}
+        const image_acquired = try ctx.vkd.createSemaphore(
+            ctx.device,
+            &vk.SemaphoreCreateInfo{ .flags = .{} },
+            null,
+        );
+        errdefer ctx.vkd.destroySemaphore(ctx.device, image_acquired, null);
 
-pub fn deinit(self: Swapchain, ctx: Context) void {
-    for (self.image_views) |view| {
-        ctx.vkd.destroyImageView(ctx.device, view, null);
+        const render_finished = try ctx.vkd.createSemaphore(
+            ctx.device,
+            &vk.SemaphoreCreateInfo{ .flags = .{} },
+            null,
+        );
+        errdefer ctx.vkd.destroySemaphore(ctx.device, render_finished, null);
+
+        const frame_fence = try ctx.vkd.createFence(
+            ctx.device,
+            &vk.FenceCreateInfo{ .flags = .{} },
+            null,
+        );
+        errdefer ctx.vkd.destroyFence(ctx.device, frame_fence, null);
+
+        return SwapImage{
+            .image = image,
+            .view = imageView,
+            .image_acquired = image_acquired,
+            .render_finished = render_finished,
+            .frame_fence = frame_fence,
+        };
     }
-    self.allocator.free(self.image_views);
-    self.allocator.free(self.images);
-    self.support_details.deinit(self.allocator);
 
-    ctx.vkd.destroySwapchainKHR(ctx.device, self.swapchain, null);
-}
+    fn deinit(self: SwapImage, ctx: Context) void {
+        self.waitForFence(ctx) catch return;
+        ctx.vkd.destroyImage(ctx.device, self.image, null);
+        ctx.vkd.destroyImageView(ctx.device, self.view, null);
+        ctx.vkd.destroySemaphore(ctx.device, self.image_acquired, null);
+        ctx.vkd.destroySemaphore(ctx.device, self.render_finished, null);
+        ctx.vkd.destroyFence(ctx.device, self.frame_fence, null);
+    }
+
+    fn waitForFence(self: SwapImage, ctx: Context) !void {
+        _ = try ctx.vkd.waitForFences(ctx.device, 1, @ptrCast([*]const vk.Fence, &self.frame_fence), vk.TRUE, std.math.maxInt(u64));
+    }
+};
 
 pub const SupportDetails = struct {
     capabilities: vk.SurfaceCapabilitiesKHR,

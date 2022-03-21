@@ -1,10 +1,12 @@
 const std = @import("std");
-const vk = @import("vk");
+const vk = @import("vulkan");
 const glfw = @import("glfw");
 const engine = @import("engine");
 const Swapchain = engine.Swapchain;
 
 pub fn main() !void {
+    const size = vk.Extent2D{ .width = 1400, .height = 900 };
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer std.debug.assert(!gpa.deinit());
@@ -14,7 +16,7 @@ pub fn main() !void {
     defer glfw.terminate();
 
     // Create a windowed mode window
-    var window = glfw.Window.create(800, 800, "vulkan-test", null, null, .{ .client_api = .no_api }) catch |err| {
+    var window = glfw.Window.create(size.width, size.height, "vulkan-test", null, null, .{ .client_api = .no_api }) catch |err| {
         std.debug.panic("failed to create window, code: {}", .{err});
     };
     defer window.destroy();
@@ -22,8 +24,8 @@ pub fn main() !void {
     const ctx = try engine.init(allocator, "sprite test", &window);
     defer ctx.deinit();
 
-    const swapchain = try Swapchain.init(allocator, ctx, .{ .width = 800, .height = 800 }, null);
-    const commandBuffers = try ctx.createCommandBuffers(allocator, @truncate(u32, swapchain.image_views.len));
+    const swapchain = try Swapchain.init(allocator, ctx, size, null);
+    const commandBuffers = try ctx.createCommandBuffers(allocator, @truncate(u32, swapchain.images.len));
 
     defer {
         swapchain.deinit(ctx);
