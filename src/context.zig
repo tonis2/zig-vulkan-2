@@ -9,7 +9,9 @@ const vma = @import("vma");
 
 const QueueFamilyIndices = PhysicalDevice.QueueFamilyIndices;
 const ArrayList = std.ArrayList;
-const Buffer = @import("buffer.zig");
+
+pub const Swapchain = @import("swapchain.zig");
+pub const Buffer = @import("buffer.zig");
 
 // Constants
 pub const enable_safety = builtin.mode == .Debug;
@@ -18,13 +20,6 @@ pub const engine_version = vk.makeApiVersion(0, 0, 1, 0);
 pub const application_version = vk.makeApiVersion(0, 0, 1, 0);
 pub const logicical_device_extensions = [_][*:0]const u8{vk.extension_info.khr_swapchain.name};
 pub const max_frames_in_flight = 2;
-pub const Swapchain = @import("swapchain.zig");
-
-// const required_validation_features = [_]vk.ValidationFeatureEnableEXT{
-//     .gpu_assisted_ext,
-//     .best_practices_ext,
-//     .synchronization_validation_ext,
-// };
 
 const debug_extensions = [_][*:0]const u8{
     vk.extension_info.ext_debug_report.name,
@@ -208,7 +203,7 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
 
 pub fn beginOneTimeCommandBuffer(self: Self) !vk.CommandBuffer {
     var cmdbuf: vk.CommandBuffer = undefined;
-    try self.vkd.allocateCommandBuffers(self.dev, &.{
+    try self.vkd.allocateCommandBuffers(self.device, &.{
         .command_pool = self.command_pool,
         .level = .primary,
         .command_buffer_count = 1,
@@ -256,9 +251,9 @@ pub fn createCommandBuffers(self: Self, allocator: Allocator, len: u32) ![]vk.Co
     try self.vkd.allocateCommandBuffers(self.device, &.{
         .command_pool = self.command_pool,
         .level = .primary,
-        .command_buffer_count = @truncate(u32, cmdbufs.len),
+        .command_buffer_count = len,
     }, cmdbufs.ptr);
-    errdefer self.vkd.freeCommandBuffers(self.device, self.command_pool, @truncate(u32, cmdbufs.len), cmdbufs.ptr);
+    errdefer self.vkd.freeCommandBuffers(self.device, self.command_pool, len, cmdbufs.ptr);
     return cmdbufs;
 }
 
@@ -340,6 +335,7 @@ pub const Device = vk.DeviceWrapper(.{
     .waitForFences = true,
     .resetFences = true,
     .queueSubmit = true,
+    .queueSubmit2 = true,
     .queuePresentKHR = true,
     .createCommandPool = true,
     .destroyCommandPool = true,

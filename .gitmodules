@@ -1,3 +1,6 @@
 [submodule "dependencies/glfw"]
 	path = dependencies/glfw
 	url = git@github.com:hexops/mach-glfw.git
+[submodule "dependencies/zalgebra"]
+	path = dependencies/zalgebra
+	url = https://github.com/kooparse/zalgebra

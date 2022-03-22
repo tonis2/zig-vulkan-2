@@ -21,17 +21,16 @@ pub fn build(b: *Builder) void {
     exe.setBuildMode(mode);
 
     glfw.link(b, exe, .{});
-    exe.linkLibC();
-    exe.linkSystemLibrary("glfw");
-
+    // exe.linkLibC();
+    // exe.linkSystemLibrary("glfw");
     exe.linkLibCpp();
-    exe.addIncludePath("dependencies");
-    exe.addCSourceFile("dependencies/vk_allocator.cpp", &.{"-std=c++14"});
+    exe.addCSourceFile("dependencies/vma/vk_allocator.cpp", &.{"-std=c++14"});
 
     const vk = Pkg{ .name = "vulkan", .path = FileSource{ .path = "dependencies/vk/vk.zig" } };
-    const vma = Pkg{ .name = "vma", .path = FileSource{ .path = "dependencies/vk_allocator.zig" }, .dependencies = &.{vk} };
+    const vma = Pkg{ .name = "vma", .path = FileSource{ .path = "dependencies/vma/vk_allocator.zig" }, .dependencies = &.{vk} };
     const glfw_main = Pkg{ .name = "glfw", .path = FileSource{ .path = "dependencies/mach-glfw/src/main.zig" } };
-
+    const zalgebra = Pkg{ .name = "zalgebra", .path = FileSource{ .path = "dependencies/zalgebra/src/main.zig" } };
+    exe.addPackage(zalgebra);
     exe.addPackage(vk);
     exe.addPackage(glfw_main);
     exe.addPackage(Pkg{ .name = "engine", .path = FileSource{ .path = "src/context.zig" }, .dependencies = &.{ vk, glfw_main, vma } });
