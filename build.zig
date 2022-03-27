@@ -4,8 +4,10 @@ const LibExeObjStep = std.build.LibExeObjStep;
 const Pkg = std.build.Pkg;
 const FileSource = std.build.FileSource;
 const glfw = @import("dependencies/mach-glfw/build.zig");
+const ArrayList = std.ArrayList;
 
-pub fn build(b: *Builder) void {
+pub fn build(b: *Builder) !void {
+
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -33,7 +35,6 @@ pub fn build(b: *Builder) void {
     exe.addPackage(vk);
     exe.addPackage(glfw_main);
     exe.addPackage(Pkg{ .name = "engine", .path = FileSource{ .path = "src/context.zig" }, .dependencies = &.{ vk, glfw_main, vma } });
-
     exe.install();
 
     const run_cmd = exe.run();

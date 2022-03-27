@@ -32,7 +32,11 @@ pub fn main() !void {
     defer ctx.deinit();
 
     var swapchain = try Swapchain.init(allocator, ctx, size, null);
+
+    defer swapchain.deinit(ctx);
+
     const commandBuffers = try ctx.createCommandBuffers(allocator, @truncate(u32, swapchain.images.len));
+    defer ctx.deinitCmdBuffer(allocator, commandBuffers);
 
     const vertices = [_]Vertex{
         Vertex{ .pos = Vec3.new(0.0, 0.0, 1.0), .color = Vec3.new(1.0, 1.0, 1.0) },
@@ -49,6 +53,7 @@ pub fn main() !void {
         .memory_usage = .gpu_only,
         .memory_flags = .{},
     });
+    defer vertexBuffer.deinit(ctx);
 
     try vertexBuffer.upload(Vertex, ctx, &vertices);
 
@@ -58,19 +63,12 @@ pub fn main() !void {
         .memory_usage = .gpu_only,
         .memory_flags = .{},
     });
+    defer indexBuffer.deinit(ctx);
 
     try indexBuffer.upload(u16, ctx, &v_indices);
 
     const pipeline = try Pipeline.init(ctx, allocator, swapchain);
-
-    defer {
-        ctx.vkd.deviceWaitIdle(ctx.device) catch unreachable;
-        vertexBuffer.deinit(ctx);
-        indexBuffer.deinit(ctx);
-        swapchain.deinit(ctx);
-        pipeline.deinit(ctx);
-        ctx.deinitCmdBuffer(allocator, commandBuffers);
-    }
+    defer pipeline.deinit(ctx);
 
     const clear_color = [_]vk.ClearColorValue{
         .{
@@ -79,51 +77,49 @@ pub fn main() !void {
     };
 
     while (!window.shouldClose()) {
-        for (commandBuffers) |command_buffer, i| {
-            const command_begin_info = vk.CommandBufferBeginInfo{
-                .flags = .{},
-                .p_inheritance_info = null,
-            };
-            try ctx.vkd.beginCommandBuffer(command_buffer, &command_begin_info);
-            const render_begin_info = vk.RenderPassBeginInfo{
-                .render_pass = pipeline.renderpass,
-                .framebuffer = pipeline.framebuffers[i],
-                .render_area = .{ .offset = .{ .x = 0, .y = 0 }, .extent = swapchain.extent },
-                .clear_value_count = clear_color.len,
-                .p_clear_values = @ptrCast([*]const vk.ClearValue, &clear_color),
-            };
+        const command_buffer = commandBuffers[swapchain.image_index];
+        const command_begin_info = vk.CommandBufferBeginInfo{
+            .flags = .{},
+            .p_inheritance_info = null,
+        };
+        try ctx.vkd.beginCommandBuffer(command_buffer, &command_begin_info);
+        const render_begin_info = vk.RenderPassBeginInfo{
+            .render_pass = pipeline.renderpass,
+            .framebuffer = pipeline.framebuffers[swapchain.image_index],
+            .render_area = .{ .offset = .{ .x = 0, .y = 0 }, .extent = swapchain.extent },
+            .clear_value_count = clear_color.len,
+            .p_clear_values = @ptrCast([*]const vk.ClearValue, &clear_color),
+        };
 
-            const viewport = [1]vk.Viewport{
-                .{ .x = 0, .y = 0, .width = @intToFloat(f32, swapchain.extent.width), .height = @intToFloat(f32, swapchain.extent.height), .min_depth = 0.0, .max_depth = 1.0 },
-            };
+        const viewport = [1]vk.Viewport{
+            .{ .x = 0, .y = 0, .width = @intToFloat(f32, swapchain.extent.width), .height = @intToFloat(f32, swapchain.extent.height), .min_depth = 0.0, .max_depth = 1.0 },
+        };
 
-            const scissors = [1]vk.Rect2D{
-                .{ .offset = .{
-                    .x = 0,
-                    .y = 0,
-                }, .extent = swapchain.extent },
-            };
+        const scissors = [1]vk.Rect2D{
+            .{ .offset = .{
+                .x = 0,
+                .y = 0,
+            }, .extent = swapchain.extent },
+        };
 
-            ctx.vkd.cmdSetViewport(command_buffer, 0, 1, &viewport);
-            ctx.vkd.cmdSetScissor(command_buffer, 0, 1, &scissors);
-            ctx.vkd.cmdBindPipeline(command_buffer, vk.PipelineBindPoint.graphics, pipeline.pipeline);
-            ctx.vkd.cmdBeginRenderPass(command_buffer, &render_begin_info, vk.SubpassContents.@"inline");
+        ctx.vkd.cmdSetViewport(command_buffer, 0, 1, &viewport);
+        ctx.vkd.cmdSetScissor(command_buffer, 0, 1, &scissors);
+        ctx.vkd.cmdBindPipeline(command_buffer, vk.PipelineBindPoint.graphics, pipeline.pipeline);
+        ctx.vkd.cmdBeginRenderPass(command_buffer, &render_begin_info, vk.SubpassContents.@"inline");
 
-            const buffer_offsets = [_]vk.DeviceSize{0};
+        ctx.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast([*]const vk.Buffer, &vertexBuffer.buffer), @ptrCast([*]const vk.DeviceSize, &[_]vk.DeviceSize{0}));
+        ctx.vkd.cmdBindIndexBuffer(command_buffer, indexBuffer.buffer, 0, .uint32);
+        ctx.vkd.cmdDrawIndexed(command_buffer, v_indices.len, 1, 0, 0, 0);
+        ctx.vkd.cmdEndRenderPass(command_buffer);
 
-            ctx.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast([*]const vk.Buffer, &vertexBuffer.buffer), @ptrCast([*]const vk.DeviceSize, &buffer_offsets));
-            ctx.vkd.cmdBindIndexBuffer(command_buffer, indexBuffer.buffer, 0, .uint32);
-            ctx.vkd.cmdDrawIndexed(command_buffer, v_indices.len, 1, 0, 0, 0);
-            ctx.vkd.cmdEndRenderPass(command_buffer);
+        try ctx.vkd.endCommandBuffer(command_buffer);
+        const state = swapchain.present(ctx, command_buffer) catch |err| switch (err) {
+            error.OutOfDateKHR => Swapchain.PresentState.suboptimal,
+            else => |narrow| return narrow,
+        };
 
-            try ctx.vkd.endCommandBuffer(command_buffer);
-
-            const state = swapchain.present(ctx, command_buffer) catch |err| switch (err) {
-                error.OutOfDateKHR => Swapchain.PresentState.suboptimal,
-                else => |narrow| return narrow,
-            };
-
-            _ = state;
-        }
+        _ = state;
     }
+
+    for (swapchain.images) |img| img.waitForFence(ctx) catch {};
 }
