@@ -1,6 +1,7 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const vk = @import("vulkan");
+
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Context = @import("context.zig");
 

@@ -21,8 +21,7 @@ pub fn build(b: *Builder) void {
     exe.setBuildMode(mode);
 
     glfw.link(b, exe, .{});
-    // exe.linkLibC();
-    // exe.linkSystemLibrary("glfw");
+
     exe.linkLibCpp();
     exe.addCSourceFile("dependencies/vma/vk_allocator.cpp", &.{"-std=c++14"});
 

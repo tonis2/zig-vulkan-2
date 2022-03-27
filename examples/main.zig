@@ -2,15 +2,13 @@ const std = @import("std");
 const vk = @import("vulkan");
 const glfw = @import("glfw");
 const engine = @import("engine");
+
+const Pipeline = @import("./pipelines/3d.zig");
 const Buffer = engine.Buffer;
 const Swapchain = engine.Swapchain;
-const zalgebra = @import("zalgebra");
-const Vec3 = zalgebra.Vec3;
 
-pub const Vertex = struct {
-    pos: Vec3,
-    color: Vec3,
-};
+const Vec3 = Pipeline.Vec3;
+const Vertex = Pipeline.Vertex;
 
 pub fn main() !void {
     const size = vk.Extent2D{ .width = 1400, .height = 900 };
@@ -63,10 +61,13 @@ pub fn main() !void {
 
     try IndexBuffer.upload(u16, ctx, &v_indices);
 
+    const pipeline = try Pipeline.init(ctx, allocator, swapchain);
+
     defer {
         VertexBuffer.deinit(ctx);
         IndexBuffer.deinit(ctx);
         swapchain.deinit(ctx);
+        pipeline.deinit(ctx);
         ctx.deinitCmdBuffer(allocator, commandBuffers);
     }
 }
