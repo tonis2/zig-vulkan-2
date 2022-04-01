@@ -72,7 +72,7 @@ pub fn main() !void {
 
     const clear_color = [_]vk.ClearColorValue{
         .{
-            .float_32 = [_]f32{ 0.0, 0.0, 0.0, 1.0 },
+            .float_32 = [_]f32{ 0.0, 1.0, 0.0, 1.0 },
         },
     };
 
@@ -106,7 +106,6 @@ pub fn main() !void {
         ctx.vkd.cmdSetScissor(command_buffer, 0, 1, &scissors);
         ctx.vkd.cmdBindPipeline(command_buffer, vk.PipelineBindPoint.graphics, pipeline.pipeline);
         ctx.vkd.cmdBeginRenderPass(command_buffer, &render_begin_info, vk.SubpassContents.@"inline");
-
         ctx.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast([*]const vk.Buffer, &vertexBuffer.buffer), @ptrCast([*]const vk.DeviceSize, &[_]vk.DeviceSize{0}));
         ctx.vkd.cmdBindIndexBuffer(command_buffer, indexBuffer.buffer, 0, .uint32);
         ctx.vkd.cmdDrawIndexed(command_buffer, v_indices.len, 1, 0, 0, 0);

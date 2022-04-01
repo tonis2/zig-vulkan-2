@@ -4,6 +4,7 @@ const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 const Context = @import("engine");
 const Swapchain = Context.Swapchain;
+const Descriptor = Context.Descriptor;
 const zalgebra = @import("zalgebra");
 
 const Self = @This();
@@ -39,6 +40,7 @@ pipeline_layout: vk.PipelineLayout,
 pipeline: vk.Pipeline,
 renderpass: vk.RenderPass,
 framebuffers: []vk.Framebuffer,
+descriptor: Descriptor,
 
 pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
     const renderpass = brk: {
@@ -82,6 +84,20 @@ pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
             .p_dependencies = undefined,
         }, null);
     };
+
+    var descriptor = try Descriptor.new(vk.DescriptorSetLayoutCreateInfo{
+        .binding_count = 1,
+        .p_bindings = &[_]vk.DescriptorSetLayoutBinding{.{
+            .binding = 0,
+            .descriptor_type = vk.DescriptorType.uniform_buffer,
+            .descriptor_count = 1,
+            .p_immutable_samplers = null,
+            .stage_flags = .{ .vertex_bit = true },
+        }},
+        .flags = .{},
+    }, ctx, 1, allocator);
+
+    // defer descriptor.deinit(ctx);
 
     const framebuffers = brk: {
         var framebuffers = try allocator.alloc(vk.Framebuffer, swapchain.images.len);

@@ -12,6 +12,7 @@ const ArrayList = std.ArrayList;
 
 pub const Swapchain = @import("swapchain.zig");
 pub const Buffer = @import("buffer.zig");
+pub const Descriptor = @import("descriptor.zig");
 
 // Constants
 pub const enable_safety = builtin.mode == .Debug;
@@ -353,6 +354,11 @@ pub const Device = vk.DeviceWrapper(.{
     .destroyPipeline = true,
     .createFramebuffer = true,
     .destroyFramebuffer = true,
+    .createDescriptorPool = true,
+    .destroyDescriptorPool = true,
+    .createDescriptorSetLayout = true,
+    .destroyDescriptorSetLayout = true,
+    .allocateDescriptorSets = true,
     .beginCommandBuffer = true,
     .endCommandBuffer = true,
     .allocateMemory = true,
@@ -377,48 +383,28 @@ pub const Device = vk.DeviceWrapper(.{
 
 // zig fmt: on
 
-fn debugCallback(
+pub fn debugCallback(
     message_severity: vk.DebugUtilsMessageSeverityFlagsEXT.IntType,
     message_types: vk.DebugUtilsMessageTypeFlagsEXT.IntType,
     p_callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT,
     p_user_data: ?*anyopaque,
 ) callconv(vk.vulkan_call_conv) vk.Bool32 {
-    _ = message_types;
     _ = p_user_data;
+    _ = message_types;
+
+    const error_mask = comptime blk: {
+        break :blk vk.DebugUtilsMessageSeverityFlagsEXT{
+            .warning_bit_ext = true,
+            .error_bit_ext = true,
+        };
+    };
+    const is_severe = error_mask.toInt() & message_severity > 0;
+    const writer = if (is_severe) std.io.getStdErr().writer() else std.io.getStdOut().writer();
 
     if (p_callback_data) |data| {
-        const level = (vk.DebugUtilsMessageSeverityFlagsEXT{
-            .warning_bit_ext = true,
-        }).toInt();
-        if (message_severity >= level) {
-            std.log.info("{s}", .{data.p_message});
-
-            if (data.object_count > 0) {
-                std.log.info("----------Objects {}-----------\n", .{data.object_count});
-                var i: u32 = 0;
-                while (i < data.object_count) : (i += 1) {
-                    const o: vk.DebugUtilsObjectNameInfoEXT = data.p_objects[i];
-                    std.log.info("[{}-{s}]: {s}", .{
-                        i,
-                        @tagName(o.object_type),
-                        o.p_object_name,
-                    });
-                }
-                std.log.info("----------End Object-----------\n", .{});
-            }
-            if (data.cmd_buf_label_count > 0) {
-                std.log.info("----------Labels {}------------\n", .{data.object_count});
-                var i: u32 = 0;
-                while (i < data.cmd_buf_label_count) : (i += 1) {
-                    const o: vk.DebugUtilsLabelEXT = data.p_cmd_buf_labels[i];
-                    std.log.info("[{}]: {s}", .{
-                        i,
-                        o.p_label_name,
-                    });
-                }
-                std.log.info("----------End Label------------\n", .{});
-            }
-        }
+        writer.print("validation layer: {s}\n", .{data.p_message}) catch {
+            std.debug.print("error from stdout print in message callback", .{});
+        };
     }
 
     return vk.FALSE;
