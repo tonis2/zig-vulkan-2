@@ -61,7 +61,10 @@ pub const DeviceCandidate = struct {
             }
         }
 
-        if (best_candidate != null) return best_candidate.?;
+        if (best_candidate != null) {
+            std.debug.print("Using GPU {s} \n", .{best_candidate.?.props.device_name});
+            return best_candidate.?;
+        }
         return error.NoSuitableDevice;
     }
 

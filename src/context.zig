@@ -12,7 +12,6 @@ const ArrayList = std.ArrayList;
 
 pub const Swapchain = @import("swapchain.zig");
 pub const Buffer = @import("buffer.zig");
-pub const Descriptor = @import("descriptor.zig");
 
 // Constants
 pub const enable_safety = builtin.mode == .Debug;
@@ -20,7 +19,6 @@ pub const engine_name = "engine";
 pub const engine_version = vk.makeApiVersion(0, 0, 1, 0);
 pub const application_version = vk.makeApiVersion(0, 0, 1, 0);
 pub const logicical_device_extensions = [_][*:0]const u8{vk.extension_info.khr_swapchain.name};
-pub const max_frames_in_flight = 2;
 
 const debug_extensions = [_][*:0]const u8{
     vk.extension_info.ext_debug_report.name,
@@ -358,6 +356,8 @@ pub const Device = vk.DeviceWrapper(.{
     .destroyDescriptorPool = true,
     .createDescriptorSetLayout = true,
     .destroyDescriptorSetLayout = true,
+    .updateDescriptorSets = true,
+    .cmdBindDescriptorSets = true,
     .allocateDescriptorSets = true,
     .beginCommandBuffer = true,
     .endCommandBuffer = true,

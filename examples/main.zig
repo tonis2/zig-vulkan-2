@@ -50,7 +50,7 @@ pub fn main() !void {
     const vertexBuffer = try Buffer.init(ctx, Buffer.CreateInfo{
         .size = @sizeOf(Vertex) * vertices.len,
         .buffer_usage = .{ .transfer_dst_bit = true, .vertex_buffer_bit = true },
-        .memory_usage = .gpu_only,
+        .memory_usage = .cpu_to_gpu,
         .memory_flags = .{},
     });
     defer vertexBuffer.deinit(ctx);
@@ -60,7 +60,7 @@ pub fn main() !void {
     const indexBuffer = try Buffer.init(ctx, Buffer.CreateInfo{
         .size = @sizeOf(u16) * v_indices.len,
         .buffer_usage = .{ .transfer_dst_bit = true, .index_buffer_bit = true },
-        .memory_usage = .gpu_only,
+        .memory_usage = .cpu_to_gpu,
         .memory_flags = .{},
     });
     defer indexBuffer.deinit(ctx);
@@ -105,6 +105,8 @@ pub fn main() !void {
         ctx.vkd.cmdSetViewport(command_buffer, 0, 1, &viewport);
         ctx.vkd.cmdSetScissor(command_buffer, 0, 1, &scissors);
         ctx.vkd.cmdBindPipeline(command_buffer, vk.PipelineBindPoint.graphics, pipeline.pipeline);
+        ctx.vkd.cmdBindDescriptorSets(command_buffer, .graphics, pipeline.pipeline_layout, 0, 1, @ptrCast([*]const vk.DescriptorSet, &[_]vk.DescriptorSet{pipeline.descriptor_sets[swapchain.image_index]}), 0, undefined);
+
         ctx.vkd.cmdBeginRenderPass(command_buffer, &render_begin_info, vk.SubpassContents.@"inline");
         ctx.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast([*]const vk.Buffer, &vertexBuffer.buffer), @ptrCast([*]const vk.DeviceSize, &[_]vk.DeviceSize{0}));
         ctx.vkd.cmdBindIndexBuffer(command_buffer, indexBuffer.buffer, 0, .uint32);
