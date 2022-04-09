@@ -92,13 +92,13 @@ pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
         for (poolSizes) |*poolSize, i| {
             poolSize.* = vk.DescriptorPoolSize{
                 .type = descriptorLayoutInfo.p_bindings[i].descriptor_type,
-                .descriptor_count = descriptorLayoutInfo.binding_count,
+                .descriptor_count = @intCast(u32, swapchain.images.len),
             };
         }
         break :brk try ctx.vkd.createDescriptorPool(ctx.device, &vk.DescriptorPoolCreateInfo{
-            .pool_size_count = @intCast(u32, poolSizes.len),
+            .pool_size_count = 1,
             .p_pool_sizes = poolSizes.ptr,
-            .max_sets = descriptorLayoutInfo.binding_count * @intCast(u32, swapchain.images.len),
+            .max_sets = @intCast(u32, swapchain.images.len),
             .flags = .{},
         }, null);
     };
@@ -197,8 +197,8 @@ pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
 
     const pipeline_layout = try ctx.vkd.createPipelineLayout(ctx.device, &vk.PipelineLayoutCreateInfo{
         .flags = .{},
-        .set_layout_count = 3,
-        .p_set_layouts = descriptor_layouts.ptr,
+        .set_layout_count = 0,
+        .p_set_layouts = undefined,
         .push_constant_range_count = 0,
         .p_push_constant_ranges = undefined,
     }, null);

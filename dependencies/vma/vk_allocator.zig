@@ -4,7 +4,7 @@ pub const AllocatorCreateFlags = packed struct {
     /// \brief Allocator and all objects created from it will not be synchronized internally, so you must guarantee they are used from only one thread at a time or synchronized externally by you.
     ///
     /// Using this flag may increase performance because internal mutexes are not used.
-    externally_synchronized: bool align(4) = false,
+    externally_synchronized: bool = false,
 
     /// \brief Enables usage of vk.KHR_dedicated_allocation extension.
     ///

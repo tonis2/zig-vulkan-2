@@ -105,7 +105,7 @@ pub fn main() !void {
         ctx.vkd.cmdSetViewport(command_buffer, 0, 1, &viewport);
         ctx.vkd.cmdSetScissor(command_buffer, 0, 1, &scissors);
         ctx.vkd.cmdBindPipeline(command_buffer, vk.PipelineBindPoint.graphics, pipeline.pipeline);
-        ctx.vkd.cmdBindDescriptorSets(command_buffer, .graphics, pipeline.pipeline_layout, 0, 1, @ptrCast([*]const vk.DescriptorSet, &[_]vk.DescriptorSet{pipeline.descriptor_sets[swapchain.image_index]}), 0, undefined);
+        // ctx.vkd.cmdBindDescriptorSets(command_buffer, .graphics, pipeline.pipeline_layout, 0, 1, @ptrCast([*]const vk.DescriptorSet, &[_]vk.DescriptorSet{pipeline.descriptor_sets[swapchain.image_index]}), 0, undefined);
 
         ctx.vkd.cmdBeginRenderPass(command_buffer, &render_begin_info, vk.SubpassContents.@"inline");
         ctx.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast([*]const vk.Buffer, &vertexBuffer.buffer), @ptrCast([*]const vk.DeviceSize, &[_]vk.DeviceSize{0}));
