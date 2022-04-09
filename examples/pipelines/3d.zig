@@ -64,48 +64,6 @@ pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
         break :brk buffers;
     };
 
-    const renderpass = brk: {
-        const color_attachment = vk.AttachmentDescription{
-            .flags = .{},
-            .format = swapchain.format,
-            .samples = .{ .@"1_bit" = true },
-            .load_op = .clear,
-            .store_op = .store,
-            .stencil_load_op = .dont_care,
-            .stencil_store_op = .dont_care,
-            .initial_layout = .@"undefined",
-            .final_layout = .present_src_khr,
-        };
-
-        const color_attachment_ref = vk.AttachmentReference{
-            .attachment = 0,
-            .layout = .color_attachment_optimal,
-        };
-
-        const subpass = vk.SubpassDescription{
-            .flags = .{},
-            .pipeline_bind_point = .graphics,
-            .input_attachment_count = 0,
-            .p_input_attachments = undefined,
-            .color_attachment_count = 1,
-            .p_color_attachments = @ptrCast([*]const vk.AttachmentReference, &color_attachment_ref),
-            .p_resolve_attachments = null,
-            .p_depth_stencil_attachment = null,
-            .preserve_attachment_count = 0,
-            .p_preserve_attachments = undefined,
-        };
-
-        break :brk try ctx.vkd.createRenderPass(ctx.device, &.{
-            .flags = .{},
-            .attachment_count = 1,
-            .p_attachments = @ptrCast([*]const vk.AttachmentDescription, &color_attachment),
-            .subpass_count = 1,
-            .p_subpasses = @ptrCast([*]const vk.SubpassDescription, &subpass),
-            .dependency_count = 0,
-            .p_dependencies = undefined,
-        }, null);
-    };
-
     var descriptorLayoutInfo = vk.DescriptorSetLayoutCreateInfo{
         .binding_count = 1,
         .p_bindings = &[_]vk.DescriptorSetLayoutBinding{.{
@@ -172,6 +130,48 @@ pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
         }
 
         break :brk sets;
+    };
+
+    const renderpass = brk: {
+        const color_attachment = vk.AttachmentDescription{
+            .flags = .{},
+            .format = swapchain.format,
+            .samples = .{ .@"1_bit" = true },
+            .load_op = .clear,
+            .store_op = .store,
+            .stencil_load_op = .dont_care,
+            .stencil_store_op = .dont_care,
+            .initial_layout = .@"undefined",
+            .final_layout = .present_src_khr,
+        };
+
+        const color_attachment_ref = vk.AttachmentReference{
+            .attachment = 0,
+            .layout = .color_attachment_optimal,
+        };
+
+        const subpass = vk.SubpassDescription{
+            .flags = .{},
+            .pipeline_bind_point = .graphics,
+            .input_attachment_count = 0,
+            .p_input_attachments = undefined,
+            .color_attachment_count = 1,
+            .p_color_attachments = @ptrCast([*]const vk.AttachmentReference, &color_attachment_ref),
+            .p_resolve_attachments = null,
+            .p_depth_stencil_attachment = null,
+            .preserve_attachment_count = 0,
+            .p_preserve_attachments = undefined,
+        };
+
+        break :brk try ctx.vkd.createRenderPass(ctx.device, &.{
+            .flags = .{},
+            .attachment_count = 1,
+            .p_attachments = @ptrCast([*]const vk.AttachmentDescription, &color_attachment),
+            .subpass_count = 1,
+            .p_subpasses = @ptrCast([*]const vk.SubpassDescription, &subpass),
+            .dependency_count = 0,
+            .p_dependencies = undefined,
+        }, null);
     };
 
     const framebuffers = brk: {
