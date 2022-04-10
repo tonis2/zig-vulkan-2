@@ -43,7 +43,7 @@ renderpass: vk.RenderPass,
 framebuffers: []vk.Framebuffer,
 descriptor_pool: vk.DescriptorPool,
 descriptor_sets: []vk.DescriptorSet,
-descriptor_layouts: []vk.DescriptorSetLayout,
+descriptor_layout: vk.DescriptorSetLayout,
 camera_buffers: []Buffer,
 allocator: Allocator,
 
@@ -76,45 +76,40 @@ pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
         .flags = .{},
     };
 
-    var descriptor_layouts: []vk.DescriptorSetLayout = brk: {
-        var layouts = try allocator.alloc(vk.DescriptorSetLayout, swapchain.images.len);
-        for (layouts) |_, index| {
-            layouts[index] = try ctx.vkd.createDescriptorSetLayout(ctx.device, &descriptorLayoutInfo, null);
-            errdefer ctx.vkd.destroyDescriptorSetLayout(ctx.device, layouts[index], null);
-        }
+    var descriptor_layout = try ctx.vkd.createDescriptorSetLayout(ctx.device, &descriptorLayoutInfo, null);
 
-        break :brk layouts;
-    };
+    const image_count = @intCast(u32, swapchain.images.len);
 
     var descriptor_pool = brk: {
         var poolSizes = try allocator.alloc(vk.DescriptorPoolSize, swapchain.images.len);
         defer allocator.free(poolSizes);
-        for (poolSizes) |*poolSize, i| {
+
+        for (poolSizes) |*poolSize| {
             poolSize.* = vk.DescriptorPoolSize{
-                .type = descriptorLayoutInfo.p_bindings[i].descriptor_type,
-                .descriptor_count = @intCast(u32, swapchain.images.len),
+                .type = .uniform_buffer,
+                .descriptor_count = image_count,
             };
         }
         break :brk try ctx.vkd.createDescriptorPool(ctx.device, &vk.DescriptorPoolCreateInfo{
             .pool_size_count = 1,
             .p_pool_sizes = poolSizes.ptr,
-            .max_sets = @intCast(u32, swapchain.images.len),
+            .max_sets = image_count,
             .flags = .{},
         }, null);
     };
 
     var descriptor_sets = brk: {
-        var sets = try allocator.alloc(vk.DescriptorSet, swapchain.images.len);
+        var sets = try allocator.alloc(vk.DescriptorSet, image_count);
 
         try ctx.vkd.allocateDescriptorSets(ctx.device, &vk.DescriptorSetAllocateInfo{
             .descriptor_pool = descriptor_pool,
-            .descriptor_set_count = @intCast(u32, swapchain.images.len),
-            .p_set_layouts = descriptor_layouts.ptr,
+            .descriptor_set_count = image_count,
+            .p_set_layouts = @ptrCast([*]const vk.DescriptorSetLayout, &descriptor_layout),
         }, sets.ptr);
 
-        for (sets) |set, i| {
-            ctx.vkd.updateDescriptorSets(ctx.device, 1, &[_]vk.WriteDescriptorSet{.{
-                .dst_set = set,
+        for (sets) |_, i| {
+            ctx.vkd.updateDescriptorSets(ctx.device, 3, &[_]vk.WriteDescriptorSet{.{
+                .dst_set = sets[i],
                 .dst_binding = 0,
                 .dst_array_element = 0,
                 .descriptor_type = .uniform_buffer,
@@ -122,7 +117,7 @@ pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
                 .p_image_info = undefined,
                 .p_texel_buffer_view = undefined,
                 .p_buffer_info = &.{
-                    .buffer = camera_buffers[i].buffer,
+                    .buffer = undefined,
                     .offset = 0,
                     .range = @sizeOf(Camera),
                 },
@@ -197,8 +192,8 @@ pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
 
     const pipeline_layout = try ctx.vkd.createPipelineLayout(ctx.device, &vk.PipelineLayoutCreateInfo{
         .flags = .{},
-        .set_layout_count = 0,
-        .p_set_layouts = undefined,
+        .set_layout_count = 1,
+        .p_set_layouts = @ptrCast([*]const vk.DescriptorSetLayout, &descriptor_layout),
         .push_constant_range_count = 0,
         .p_push_constant_ranges = undefined,
     }, null);
@@ -333,7 +328,7 @@ pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
         .framebuffers = framebuffers,
         .descriptor_pool = descriptor_pool,
         .descriptor_sets = descriptor_sets,
-        .descriptor_layouts = descriptor_layouts,
+        .descriptor_layout = descriptor_layout,
         .camera_buffers = camera_buffers,
         .allocator = allocator,
     };
@@ -345,7 +340,7 @@ pub fn deinit(self: Self, ctx: Context) void {
     ctx.vkd.destroyDescriptorPool(ctx.device, self.descriptor_pool, null);
 
     for (self.camera_buffers) |buffer| buffer.deinit(ctx);
-    for (self.descriptor_layouts) |layout| ctx.vkd.destroyDescriptorSetLayout(ctx.device, layout, null);
+    ctx.vkd.destroyDescriptorSetLayout(ctx.device, self.descriptor_layout, null);
     for (self.framebuffers) |buffer| ctx.vkd.destroyFramebuffer(ctx.device, buffer, null);
 
     ctx.vkd.destroyPipelineLayout(ctx.device, self.pipeline_layout, null);
