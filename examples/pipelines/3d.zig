@@ -64,64 +64,80 @@ pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
         break :brk buffers;
     };
 
-    var descriptorLayoutInfo = vk.DescriptorSetLayoutCreateInfo{
-        .binding_count = 1,
-        .p_bindings = &[_]vk.DescriptorSetLayoutBinding{.{
+    const dslb = [1]vk.DescriptorSetLayoutBinding{
+        .{
             .binding = 0,
-            .descriptor_type = vk.DescriptorType.uniform_buffer,
+            .descriptor_type = .uniform_buffer,
             .descriptor_count = 1,
-            .p_immutable_samplers = null,
             .stage_flags = .{ .vertex_bit = true },
-        }},
-        .flags = .{},
+            .p_immutable_samplers = null,
+        },
     };
 
-    var descriptor_layout = try ctx.vkd.createDescriptorSetLayout(ctx.device, &descriptorLayoutInfo, null);
+    var descriptor_layout = try ctx.vkd.createDescriptorSetLayout(ctx.device, &.{
+        .binding_count = @truncate(u32, dslb.len),
+        .p_bindings = @ptrCast([*]const vk.DescriptorSetLayoutBinding, &dslb),
+        .flags = .{},
+    }, null);
 
     const image_count = @intCast(u32, swapchain.images.len);
 
     var descriptor_pool = brk: {
-        var poolSizes = try allocator.alloc(vk.DescriptorPoolSize, swapchain.images.len);
-        defer allocator.free(poolSizes);
-
-        for (poolSizes) |*poolSize| {
-            poolSize.* = vk.DescriptorPoolSize{
-                .type = .uniform_buffer,
-                .descriptor_count = image_count,
-            };
-        }
+        var pool_size = [1]vk.DescriptorPoolSize{.{
+            .@"type" = .uniform_buffer,
+            .descriptor_count = image_count,
+        }};
         break :brk try ctx.vkd.createDescriptorPool(ctx.device, &vk.DescriptorPoolCreateInfo{
             .pool_size_count = 1,
-            .p_pool_sizes = poolSizes.ptr,
+            .p_pool_sizes = @ptrCast([*]const vk.DescriptorPoolSize, &pool_size),
             .max_sets = image_count,
             .flags = .{},
         }, null);
     };
 
     var descriptor_sets = brk: {
+        var layouts = try allocator.alloc(vk.DescriptorSetLayout, image_count);
         var sets = try allocator.alloc(vk.DescriptorSet, image_count);
+        defer allocator.free(layouts);
 
-        try ctx.vkd.allocateDescriptorSets(ctx.device, &vk.DescriptorSetAllocateInfo{
+        for (layouts) |*l| {
+            l.* = descriptor_layout;
+        }
+
+        const dsai = vk.DescriptorSetAllocateInfo{
             .descriptor_pool = descriptor_pool,
             .descriptor_set_count = image_count,
-            .p_set_layouts = @ptrCast([*]const vk.DescriptorSetLayout, &descriptor_layout),
-        }, sets.ptr);
+            .p_set_layouts = @ptrCast([*]const vk.DescriptorSetLayout, layouts),
+        };
+
+        try ctx.vkd.allocateDescriptorSets(ctx.device, &dsai, sets.ptr);
 
         for (sets) |_, i| {
-            ctx.vkd.updateDescriptorSets(ctx.device, 3, &[_]vk.WriteDescriptorSet{.{
-                .dst_set = sets[i],
-                .dst_binding = 0,
-                .dst_array_element = 0,
-                .descriptor_type = .uniform_buffer,
-                .descriptor_count = 1,
-                .p_image_info = undefined,
-                .p_texel_buffer_view = undefined,
-                .p_buffer_info = &.{
-                    .buffer = undefined,
-                    .offset = 0,
-                    .range = @sizeOf(Camera),
+            const dbi = vk.DescriptorBufferInfo{
+                .buffer = camera_buffers[i].buffer,
+                .offset = 0,
+                .range = @sizeOf(Camera),
+            };
+            const wds = [1]vk.WriteDescriptorSet{
+                .{
+                    .dst_set = sets[i],
+                    .dst_binding = 0,
+                    .dst_array_element = 0,
+                    .descriptor_count = 1,
+                    .descriptor_type = .uniform_buffer,
+                    .p_image_info = undefined,
+                    .p_buffer_info = @ptrCast([*]const vk.DescriptorBufferInfo, &dbi),
+                    .p_texel_buffer_view = undefined,
                 },
-            }}, 0, undefined);
+            };
+
+            ctx.vkd.updateDescriptorSets(
+                ctx.device,
+                @truncate(u32, wds.len),
+                @ptrCast([*]const vk.WriteDescriptorSet, &wds),
+                0,
+                undefined,
+            );
         }
 
         break :brk sets;
