@@ -53,14 +53,16 @@ pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
 
     var camera_buffers = brk: {
         var buffers = try allocator.alloc(Buffer, swapchain.images.len);
-        var cameraBuffer = try Buffer.init(ctx, Buffer.CreateInfo{
-            .size = @sizeOf(Camera),
-            .buffer_usage = .{ .uniform_buffer_bit = true },
-            .memory_usage = .cpu_to_gpu,
-            .memory_flags = .{},
-        });
+        for (buffers) |*buffer| {
+            buffer.* = try Buffer.init(ctx, Buffer.CreateInfo{
+                .size = @sizeOf(Camera),
+                .buffer_usage = .{ .uniform_buffer_bit = true },
+                .memory_usage = .cpu_to_gpu,
+                .memory_flags = .{},
+            });
 
-        try cameraBuffer.upload(Camera, ctx, &[_]Camera{camera});
+            try buffer.upload(Camera, ctx, &[_]Camera{camera});
+        }
         break :brk buffers;
     };
 

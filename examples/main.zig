@@ -115,7 +115,7 @@ pub fn main() !void {
             0,
             undefined,
         );
-        
+
         ctx.vkd.cmdBeginRenderPass(command_buffer, &render_begin_info, vk.SubpassContents.@"inline");
         ctx.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast([*]const vk.Buffer, &vertexBuffer.buffer), @ptrCast([*]const vk.DeviceSize, &[_]vk.DeviceSize{0}));
         ctx.vkd.cmdBindIndexBuffer(command_buffer, indexBuffer.buffer, 0, .uint32);
