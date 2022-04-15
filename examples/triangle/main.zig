@@ -3,7 +3,7 @@ const vk = @import("vulkan");
 const glfw = @import("glfw");
 const engine = @import("engine");
 
-const Pipeline = @import("./pipelines/3d.zig");
+const Pipeline = @import("./pipeline.zig");
 const Buffer = engine.Buffer;
 const Swapchain = engine.Swapchain;
 
@@ -39,13 +39,10 @@ pub fn main() !void {
     defer ctx.deinitCmdBuffer(allocator, commandBuffers);
 
     const vertices = [_]Vertex{
-        Vertex{ .pos = Vec3.new(0.0, 0.0, 1.0), .color = Vec3.new(1.0, 1.0, 1.0) },
-        Vertex{ .pos = Vec3.new(300, 0.0, 1.0), .color = Vec3.new(1.0, 1.0, 1.0) },
-        Vertex{ .pos = Vec3.new(300, 300, 1.0), .color = Vec3.new(1.0, 1.0, 1.0) },
-        Vertex{ .pos = Vec3.new(0.0, 300, 1.0), .color = Vec3.new(1.0, 1.0, 1.0) },
+        .{ .pos = .{ 0, -0.5 }, .color = .{ 1, 0, 0 } },
+        .{ .pos = .{ 0.5, 0.5 }, .color = .{ 0, 1, 0 } },
+        .{ .pos = .{ -0.5, 0.5 }, .color = .{ 0, 0, 1 } },
     };
-
-    const v_indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
 
     const vertexBuffer = try Buffer.init(ctx, Buffer.CreateInfo{
         .size = @sizeOf(Vertex) * vertices.len,
@@ -57,32 +54,23 @@ pub fn main() !void {
 
     try vertexBuffer.upload(Vertex, ctx, &vertices);
 
-    const indexBuffer = try Buffer.init(ctx, Buffer.CreateInfo{
-        .size = @sizeOf(u16) * v_indices.len,
-        .buffer_usage = .{ .transfer_dst_bit = true, .index_buffer_bit = true },
-        .memory_usage = .cpu_to_gpu,
-        .memory_flags = .{},
-    });
-    defer indexBuffer.deinit(ctx);
-
-    try indexBuffer.upload(u16, ctx, &v_indices);
-
     const pipeline = try Pipeline.init(ctx, allocator, swapchain);
     defer pipeline.deinit(ctx);
 
     const clear_color = [_]vk.ClearColorValue{
         .{
-            .float_32 = [_]f32{ 0.0, 1.0, 0.0, 1.0 },
+            .float_32 = [_]f32{ 0.0, 0.0, 0.0, 1.0 },
         },
     };
 
     while (!window.shouldClose()) {
         const command_buffer = commandBuffers[swapchain.image_index];
-        const command_begin_info = vk.CommandBufferBeginInfo{
+
+        try ctx.vkd.beginCommandBuffer(command_buffer, &vk.CommandBufferBeginInfo{
             .flags = .{},
             .p_inheritance_info = null,
-        };
-        try ctx.vkd.beginCommandBuffer(command_buffer, &command_begin_info);
+        });
+
         const render_begin_info = vk.RenderPassBeginInfo{
             .render_pass = pipeline.renderpass,
             .framebuffer = pipeline.framebuffers[swapchain.image_index],
@@ -105,28 +93,20 @@ pub fn main() !void {
         ctx.vkd.cmdSetViewport(command_buffer, 0, 1, &viewport);
         ctx.vkd.cmdSetScissor(command_buffer, 0, 1, &scissors);
         ctx.vkd.cmdBindPipeline(command_buffer, vk.PipelineBindPoint.graphics, pipeline.pipeline);
-        ctx.vkd.cmdBindDescriptorSets(
-            command_buffer,
-            .graphics,
-            pipeline.pipeline_layout,
-            0,
-            1,
-            @ptrCast([*]const vk.DescriptorSet, &pipeline.descriptor_sets[swapchain.image_index]),
-            0,
-            undefined,
-        );
 
         ctx.vkd.cmdBeginRenderPass(command_buffer, &render_begin_info, vk.SubpassContents.@"inline");
         ctx.vkd.cmdBindVertexBuffers(command_buffer, 0, 1, @ptrCast([*]const vk.Buffer, &vertexBuffer.buffer), @ptrCast([*]const vk.DeviceSize, &[_]vk.DeviceSize{0}));
-        ctx.vkd.cmdBindIndexBuffer(command_buffer, indexBuffer.buffer, 0, .uint32);
-        ctx.vkd.cmdDrawIndexed(command_buffer, v_indices.len, 1, 0, 0, 0);
+        ctx.vkd.cmdDraw(command_buffer, vertices.len, 1, 0, 0);
         ctx.vkd.cmdEndRenderPass(command_buffer);
 
         try ctx.vkd.endCommandBuffer(command_buffer);
+
         const state = swapchain.present(ctx, command_buffer) catch |err| switch (err) {
             error.OutOfDateKHR => Swapchain.PresentState.suboptimal,
             else => |narrow| return narrow,
         };
+
+        try glfw.pollEvents();
 
         _ = state;
     }

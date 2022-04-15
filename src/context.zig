@@ -25,8 +25,9 @@ const debug_extensions = [_][*:0]const u8{
     vk.extension_info.ext_debug_utils.name,
 };
 
+// Debug validator layer
 const required_instance_layers = [_][*:0]const u8{
-    "VK_LAYER_LUNARG_standard_validation",
+    "VK_LAYER_KHRONOS_validation",
 };
 
 pub const Queue = struct {

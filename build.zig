@@ -18,7 +18,7 @@ pub fn build(b: *Builder) !void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const mode = b.standardReleaseOptions();
 
-    const exe = b.addExecutable("main", "examples/main.zig");
+    const exe = b.addExecutable("triangle", "examples/triangle/main.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
 
@@ -40,6 +40,6 @@ pub fn build(b: *Builder) !void {
     const run_cmd = exe.run();
     run_cmd.step.dependOn(b.getInstallStep());
 
-    const run_step = b.step("main", "Run the app");
+    const run_step = b.step("triangle", "Run the app");
     run_step.dependOn(&run_cmd.step);
 }
