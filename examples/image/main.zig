@@ -39,9 +39,10 @@ pub fn main() !void {
     defer ctx.deinitCmdBuffer(allocator, commandBuffers);
 
     const vertices = [_]Vertex{
-        .{ .pos = .{ 0, -0.5, 1.0 }, .color = .{ 1, 0, 0 } },
-        .{ .pos = .{ 0.5, 0.5, 1.0 }, .color = .{ 0, 1, 0 } },
-        .{ .pos = .{ -0.5, 0.5, 1.0 }, .color = .{ 0, 0, 1 } },
+        .{ .pos = .{ 0, 0, 1.0 }, .color = .{ 1, 0, 0 } },
+        .{ .pos = .{ 300, 0, 1.0 }, .color = .{ 0, 1, 0 } },
+        .{ .pos = .{ 300, 300, 1.0 }, .color = .{ 0, 0, 1 } },
+        .{ .pos = .{ 0, 300, 1.0 }, .color = .{ 0, 0, 1 } },
     };
 
     const vertexBuffer = try Buffer.init(ctx, .{
@@ -55,17 +56,17 @@ pub fn main() !void {
 
     try vertexBuffer.upload(Vertex, ctx, &vertices);
 
-    const v_indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
-
+    const v_indices = [_]u32{ 0, 1, 2, 2, 3, 0 };
     const indexBuffer = try Buffer.init(ctx, .{
-        .size = @sizeOf(u16) * v_indices.len,
+        .size = @sizeOf(u32) * v_indices.len,
         .buffer_usage = .{ .transfer_dst_bit = true, .index_buffer_bit = true },
         .memory_usage = .cpu_to_gpu,
         .memory_flags = .{},
     });
+
     defer indexBuffer.deinit(ctx);
 
-    try indexBuffer.upload(u16, ctx, &v_indices);
+    try indexBuffer.upload(u32, ctx, &v_indices);
 
     const pipeline = try Pipeline.init(ctx, allocator, swapchain);
     defer pipeline.deinit(ctx);
@@ -106,7 +107,6 @@ pub fn main() !void {
         ctx.vkd.cmdSetViewport(command_buffer, 0, 1, &viewport);
         ctx.vkd.cmdSetScissor(command_buffer, 0, 1, &scissors);
         ctx.vkd.cmdBindPipeline(command_buffer, vk.PipelineBindPoint.graphics, pipeline.pipeline);
-
         ctx.vkd.cmdBindDescriptorSets(
             command_buffer,
             .graphics,
