@@ -4,7 +4,7 @@ const vk = @import("vulkan");
 const Allocator = std.mem.Allocator;
 const Context = @import("engine");
 const Swapchain = Context.Swapchain;
-const Camera = @import("../camera.zig");
+const Camera = @import("utils").Camera;
 const Buffer = Context.Buffer;
 const zalgebra = @import("zalgebra");
 
@@ -12,8 +12,8 @@ const Self = @This();
 
 pub const Vec3 = zalgebra.Vec3;
 pub const Vertex = struct {
-    pos: Vec3,
-    color: Vec3,
+    pos: [3]f32,
+    color: [3]f32,
 
     const binding_description = vk.VertexInputBindingDescription{
         .binding = 0,
@@ -48,8 +48,7 @@ camera_buffers: []Buffer,
 allocator: Allocator,
 
 pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
-    var camera = Camera.new(@intToFloat(f32, swapchain.extent.width), @intToFloat(f32, swapchain.extent.height), 400);
-    camera.translate(Vec3.new(300.0, 300.0, 0.0));
+    var camera = Camera.new(1400, 900, 400);
 
     var camera_buffers = brk: {
         var buffers = try allocator.alloc(Buffer, swapchain.images.len);
@@ -216,8 +215,8 @@ pub fn init(ctx: Context, allocator: Allocator, swapchain: Swapchain) !Self {
         .p_push_constant_ranges = undefined,
     }, null);
 
-    const vert_code align(4) = @embedFile("../shaders/vert.spv").*;
-    const frag_code align(4) = @embedFile("../shaders/frag.spv").*;
+    const vert_code align(4) = @embedFile("./shaders/vert.spv").*;
+    const frag_code align(4) = @embedFile("./shaders/frag.spv").*;
 
     const vertexShader = try ctx.vkd.createShaderModule(ctx.device, &.{
         .flags = .{},
