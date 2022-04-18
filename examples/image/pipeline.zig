@@ -359,6 +359,10 @@ pub fn deinit(self: Self, ctx: Context) void {
     for (self.camera_buffers) |buffer| buffer.deinit(ctx);
     ctx.vkd.destroyDescriptorSetLayout(ctx.device, self.descriptor_layout, null);
     for (self.framebuffers) |buffer| ctx.vkd.destroyFramebuffer(ctx.device, buffer, null);
+    
+    self.allocator.free(self.framebuffers);
+    self.allocator.free(self.descriptor_sets);
+    self.allocator.free(self.camera_buffers);
 
     ctx.vkd.destroyPipelineLayout(ctx.device, self.pipeline_layout, null);
     ctx.vkd.destroyPipeline(ctx.device, self.pipeline, null);
