@@ -18,12 +18,18 @@ pub const enable_safety = builtin.mode == .Debug;
 pub const engine_name = "engine";
 pub const engine_version = vk.makeApiVersion(0, 0, 1, 0);
 pub const application_version = vk.makeApiVersion(0, 0, 1, 0);
-pub const logicical_device_extensions = [_][*:0]const u8{vk.extension_info.khr_swapchain.name};
 
-const debug_extensions = [_][*:0]const u8{
-    vk.extension_info.ext_debug_report.name,
-    vk.extension_info.ext_debug_utils.name,
-};
+const prod_logical_device_extensions = [_][*:0]const u8{vk.extension_info.khr_swapchain.name};
+const debug_logical_device_extensions = [_][*:0]const u8{vk.extension_info.khr_shader_non_semantic_info.name};
+const logical_device_extensions = if (enable_safety) prod_logical_device_extensions ++ debug_logical_device_extensions else prod_logical_device_extensions;
+const common_extensions = [_][*:0]const u8{vk.extension_info.khr_surface.name};
+
+// const required_device_extensions = [_][*:0]const u8{
+//     vk.extension_info.khr_swapchain.name,
+//     // vk.extension_info.ext_descriptor_indexing.name,
+//     // vk.extension_info.khr_synchronization_2.name,
+//     vk.extension_info.khr_push_descriptor.name,
+// };
 
 // Debug validator layer
 const required_instance_layers = [_][*:0]const u8{
@@ -76,67 +82,89 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
         .api_version = vk.API_VERSION_1_2,
     };
 
-    const glfw_exts = try glfw.getRequiredInstanceExtensions();
+    const glfw_extensions_slice = try glfw.getRequiredInstanceExtensions();
 
-    var instance_exts = blk: {
+    const application_extensions = blk: {
         if (enable_safety) {
-            var exts = try std.ArrayList([*:0]const u8).initCapacity(
-                allocator,
-                glfw_exts.len + debug_extensions.len,
-            );
-            {
-                try exts.appendSlice(glfw_exts);
-                for (debug_extensions) |e| {
-                    try exts.append(e);
-                }
-            }
-            break :blk exts.toOwnedSlice();
+            const debug_extensions = [_][*:0]const u8{
+                vk.extension_info.ext_debug_report.name,
+                vk.extension_info.ext_debug_utils.name,
+            } ++ common_extensions;
+            break :blk debug_extensions[0..];
         }
-
-        break :blk glfw_exts;
+        break :blk common_extensions[0..];
     };
 
-    defer if (enable_safety) {
-        allocator.free(instance_exts);
-    };
+    var extensions = try ArrayList([*:0]const u8).initCapacity(allocator, glfw_extensions_slice.len + application_extensions.len);
+    defer extensions.deinit();
 
-    const validation_features = blk: {
-        if (enable_safety) {
-            break :blk &vk.ValidationFeaturesEXT{
-                .enabled_validation_feature_count = @truncate(u32, debug_extensions.len),
-                .p_enabled_validation_features = @ptrCast(
-                    [*]const vk.ValidationFeatureEnableEXT,
-                    &debug_extensions,
-                ),
-                .disabled_validation_feature_count = 0,
-                .p_disabled_validation_features = undefined,
-            };
-        }
-
-        break :blk null;
-    };
+    for (glfw_extensions_slice) |extension| {
+        try extensions.append(extension);
+    }
+    for (application_extensions) |extension| {
+        try extensions.append(extension);
+    }
 
     var self: Self = undefined;
 
     const vk_proc = @ptrCast(vk.PfnGetInstanceProcAddr, glfw.getInstanceProcAddress);
     self.vkb = try Base.load(vk_proc);
 
-    if (!(try utils.isInstanceExtensionsPresent(allocator, self.vkb, instance_exts))) {
+    if (!(try utils.isInstanceExtensionsPresent(allocator, self.vkb, extensions.items))) {
         return error.InstanceExtensionNotPresent;
     }
 
-    self.instance = blk: {
-        const instanceInfo = vk.InstanceCreateInfo{
-            .p_next = validation_features,
-            .flags = .{},
-            .p_application_info = &app_info,
-            .enabled_layer_count = if (enable_safety) 1 else 0,
-            .pp_enabled_layer_names = &required_instance_layers,
-            .enabled_extension_count = @intCast(u32, instance_exts.len),
-            .pp_enabled_extension_names = @ptrCast([*]const [*:0]const u8, instance_exts),
-        };
-        break :blk try self.vkb.createInstance(&instanceInfo, null);
+    const features: ?*const vk.ValidationFeaturesEXT = blk: {
+        if (enable_safety) {
+            break :blk &vk.ValidationFeaturesEXT{
+                .enabled_validation_feature_count = 0,
+                .p_enabled_validation_features = undefined,
+                .disabled_validation_feature_count = 0,
+                .p_disabled_validation_features = undefined,
+            };
+        }
+        break :blk null;
     };
+
+    const debug_create_info: ?*const vk.DebugUtilsMessengerCreateInfoEXT = blk: {
+        if (enable_safety) {
+            const message_severity = vk.DebugUtilsMessageSeverityFlagsEXT{
+                .verbose_bit_ext = true,
+                .info_bit_ext = true,
+                .warning_bit_ext = true,
+                .error_bit_ext = true,
+            };
+
+            const message_type = vk.DebugUtilsMessageTypeFlagsEXT{
+                .general_bit_ext = true,
+                .validation_bit_ext = true,
+                .performance_bit_ext = true,
+            };
+
+            break :blk &vk.DebugUtilsMessengerCreateInfoEXT{
+                .p_next = @ptrCast(?*const anyopaque, features),
+                .flags = .{},
+                .message_severity = message_severity,
+                .message_type = message_type,
+                .pfn_user_callback = debugCallback,
+                .p_user_data = null,
+            };
+        } else {
+            break :blk null;
+        }
+    };
+
+    const instanceInfo = vk.InstanceCreateInfo{
+        .p_next = @ptrCast(?*const anyopaque, debug_create_info),
+        .flags = .{},
+        .p_application_info = &app_info,
+        .enabled_layer_count = if (enable_safety) 1 else 0,
+        .pp_enabled_layer_names = &required_instance_layers,
+        .enabled_extension_count = @intCast(u32, extensions.items.len),
+        .pp_enabled_extension_names = @ptrCast([*]const [*:0]const u8, extensions.items),
+    };
+
+    self.instance = try self.vkb.createInstance(&instanceInfo, null);
 
     self.vki = try Instance.load(self.instance, vk_proc);
     errdefer self.vki.destroyInstance(self.instance, null);
@@ -149,27 +177,50 @@ pub fn init(allocator: Allocator, application_name: []const u8, window: *glfw.Wi
 
     var device_candidate = try PhysicalDevice.DeviceCandidate.init(self.vki, self.instance, allocator, self.surface);
     self.physical_device = device_candidate.pdev;
-    self.device = try device_candidate.initDevice(self.vki);
-    self.queue_indices = device_candidate.queues;
 
+    self.device = blk: {
+        const priority = [_]f32{1};
+        const qci = [_]vk.DeviceQueueCreateInfo{
+            .{
+                .flags = .{},
+                .queue_family_index = device_candidate.queues.graphics,
+                .queue_count = 1,
+                .p_queue_priorities = &priority,
+            },
+            .{
+                .flags = .{},
+                .queue_family_index = device_candidate.queues.present,
+                .queue_count = 1,
+                .p_queue_priorities = &priority,
+            },
+            .{
+                .flags = .{},
+                .queue_family_index = device_candidate.queues.compute.?,
+                .queue_count = 1,
+                .p_queue_priorities = &priority,
+            },
+        };
+
+        const device_features = vk.PhysicalDeviceFeatures{};
+
+        const create_info = vk.DeviceCreateInfo{
+            .flags = .{},
+            .queue_create_info_count = @intCast(u32, qci.len),
+            .p_queue_create_infos = &qci,
+            .enabled_layer_count = if (enable_safety) 1 else 0,
+            .pp_enabled_layer_names = &required_instance_layers,
+            .enabled_extension_count = @intCast(u32, logical_device_extensions.len),
+            .pp_enabled_extension_names = &logical_device_extensions,
+            .p_enabled_features = @ptrCast(*const vk.PhysicalDeviceFeatures, &device_features),
+        };
+
+        break :blk try self.vki.createDevice(self.physical_device, &create_info, null);
+    };
+
+    self.queue_indices = device_candidate.queues;
     self.messenger = blk: {
         if (!enable_safety) break :blk null;
-        const create_info = vk.DebugUtilsMessengerCreateInfoEXT{
-            .flags = .{},
-            .message_severity = vk.DebugUtilsMessageSeverityFlagsEXT{
-                .verbose_bit_ext = true,
-                .warning_bit_ext = true,
-                .error_bit_ext = true,
-            },
-            .message_type = vk.DebugUtilsMessageTypeFlagsEXT{
-                .general_bit_ext = true,
-                .validation_bit_ext = true,
-                .performance_bit_ext = true,
-            },
-            .pfn_user_callback = debugCallback,
-            .p_user_data = null,
-        };
-        break :blk self.vki.createDebugUtilsMessengerEXT(self.instance, &create_info, null) catch {
+        break :blk self.vki.createDebugUtilsMessengerEXT(self.instance, debug_create_info.?, null) catch {
             std.debug.panic("failed to create debug messenger", .{});
         };
     };
@@ -223,19 +274,17 @@ pub fn endOneTimeCommandBuffer(self: Self, cmdbuf: vk.CommandBuffer) !void {
     const fence = try self.vkd.createFence(self.device, &.{ .flags = .{} }, null);
     errdefer self.vkd.destroyFence(self.device, fence, null);
 
-    // Submit to the queue
-    try self.vkd.queueSubmit2(self.graphics_queue.handle, 1, &[_]vk.SubmitInfo2{.{
-        .flags = .{},
-        .wait_semaphore_info_count = 0,
-        .p_wait_semaphore_infos = undefined,
-        .command_buffer_info_count = 1,
-        .p_command_buffer_infos = &[_]vk.CommandBufferSubmitInfo{.{
-            .command_buffer = cmdbuf,
-            .device_mask = 0,
-        }},
-        .signal_semaphore_info_count = 0,
-        .p_signal_semaphore_infos = undefined,
-    }}, fence);
+    const si = vk.SubmitInfo{
+        .wait_semaphore_count = 0,
+        .p_wait_semaphores = undefined,
+        .p_wait_dst_stage_mask = undefined,
+        .command_buffer_count = 1,
+        .p_command_buffers = @ptrCast([*]const vk.CommandBuffer, &cmdbuf),
+        .signal_semaphore_count = 0,
+        .p_signal_semaphores = undefined,
+    };
+
+    try self.vkd.queueSubmit(self.graphics_queue.handle, 1, @ptrCast([*]const vk.SubmitInfo, &si), .null_handle);
 
     // Wait for the fence to signal that command buffer has finished executing
     _ = try self.vkd.waitForFences(self.device, 1, @ptrCast([*]const vk.Fence, &fence), vk.TRUE, std.math.maxInt(u64));
@@ -336,7 +385,6 @@ pub const Device = vk.DeviceWrapper(.{
     .waitForFences = true,
     .resetFences = true,
     .queueSubmit = true,
-    .queueSubmit2 = true,
     .queuePresentKHR = true,
     .createCommandPool = true,
     .destroyCommandPool = true,
