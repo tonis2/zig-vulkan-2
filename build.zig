@@ -28,6 +28,7 @@ pub fn build(b: *Builder) !void {
         const zalgebra = Pkg{ .name = "zalgebra", .path = FileSource{ .path = "dependencies/zalgebra/src/main.zig" } };
         const utils = Pkg{ .name = "utils", .path = FileSource{ .path = "examples/utils/index.zig" }, .dependencies = &.{zalgebra} };
 
+        exe.addPackagePath("zigimg", "dependencies/zigimg/zigimg.zig");
         exe.addPackage(zalgebra);
         exe.addPackage(vk);
         exe.addPackage(glfw_main);

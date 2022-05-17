@@ -4,3 +4,6 @@
 [submodule "dependencies/mach-glfw"]
 	path = dependencies/mach-glfw
 	url = git@github.com:hexops/mach-glfw.git
+[submodule "dependencies/zigimg"]
+	path = dependencies/zigimg
+	url = git@github.com:zigimg/zigimg.git

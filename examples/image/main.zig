@@ -2,6 +2,7 @@ const std = @import("std");
 const vk = @import("vulkan");
 const glfw = @import("glfw");
 const engine = @import("engine");
+const zigimg = @import("zigimg");
 
 const Pipeline = @import("./pipeline.zig");
 const Buffer = engine.Buffer;
@@ -30,6 +31,9 @@ pub fn main() !void {
 
     const ctx = try engine.init(allocator, "vulkan-test", &window);
     defer ctx.deinit();
+
+    const image = try zigimg.Image.fromFilePath(allocator, "examples/image/assets/zig.png");
+    defer image.deinit();
 
     var swapchain = try Swapchain.init(allocator, ctx, size, null);
 

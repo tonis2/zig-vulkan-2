@@ -1,7 +1,8 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+
 const builtin = @import("builtin");
 const vk = @import("vulkan");
-const Allocator = std.mem.Allocator;
 const utils = @import("utils.zig");
 const PhysicalDevice = @import("physical_device.zig");
 const glfw = @import("glfw");
@@ -12,6 +13,7 @@ const ArrayList = std.ArrayList;
 
 pub const Swapchain = @import("swapchain.zig");
 pub const Buffer = @import("buffer.zig");
+pub const Texture = @import("texture.zig");
 
 // Constants
 pub const enable_safety = builtin.mode == .Debug;
@@ -362,10 +364,12 @@ pub const Device = vk.DeviceWrapper(.{
     .getImageMemoryRequirements2 = true,
     .getBufferMemoryRequirements2 = true,
     .flushMappedMemoryRanges = true,
+    .cmdPipelineBarrier2 = true,
+
     //debug
 
-    // .cmdInsertDebugUtilsLabelEXT = enable_safety,
-    // .setDebugUtilsObjectNameEXT = enable_safety,
+    .cmdInsertDebugUtilsLabelEXT = enable_safety,
+    .setDebugUtilsObjectNameEXT = enable_safety,
 
     //normal
 

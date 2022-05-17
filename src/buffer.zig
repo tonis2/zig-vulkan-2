@@ -3,6 +3,8 @@ const vk = @import("vulkan");
 const vma = @import("vma");
 const Context = @import("context.zig");
 
+const Self = @This();
+
 pub const CreateInfo = struct {
     size: vk.DeviceSize,
     buffer_usage: vk.BufferUsageFlags,
@@ -14,8 +16,6 @@ buffer: vk.Buffer,
 allocation: vma.Allocation,
 info: vma.AllocationInfo,
 create_info: CreateInfo,
-
-const Self = @This();
 
 pub fn init(context: Context, create_info: CreateInfo) !Self {
     var allocation_info: vma.AllocationInfo = undefined;
